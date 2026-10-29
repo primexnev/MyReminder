@@ -1,6 +1,6 @@
 // App shell cache: network first so new versions show up, cache as offline fallback.
-const CACHE = "myreminder-v2";
-const SHELL = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest", "icons/icon-192.png"];
+const CACHE = "myreminder-v3";
+const SHELL = ["./", "index.html", "styles.css", "config.js", "app.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

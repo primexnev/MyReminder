@@ -10,16 +10,98 @@
   };
   const newId = () => "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-  // ---------- storage (device only for now; sync comes with the backend) ----------
+  // ---------- API ----------
+  const API = window.MYREMINDER_API;
+  let session = ls.get("dl.session", null); // {token, username}
+
+  async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(session ? { Authorization: "Bearer " + session.token } : {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && session) { signOutLocal(); throw new Error(data.error || "Please sign in again."); }
+    if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+    return data;
+  }
+
+  // ---------- storage: server is the source of truth, local copy keeps it fast and offline-readable ----------
   let tasks = [];
+  const showSync = msg => { $("syncMsg").textContent = msg || ""; $("syncMsg").hidden = !msg; };
+  const cache = () => ls.set("dl.cache", tasks);
+  const send = (p, again) => p.then(() => showSync(""), e => { showSync("Couldn't save: " + e.message); again && setTimeout(store.pull, 3000); });
   const store = {
-    load() { tasks = Object.entries(ls.get("dl.tasks", {})).map(([id, d]) => ({ id, ...d })); },
-    save() { ls.set("dl.tasks", Object.fromEntries(tasks.map(({ id, ...d }) => [id, d]))); render(); },
-    put(id, data) { tasks = tasks.filter(t => t.id !== id).concat({ id, ...data }); this.save(); },
-    patch(id, p) { tasks = tasks.map(t => t.id === id ? { ...t, ...p } : t); this.save(); },
-    remove(id) { tasks = tasks.filter(t => t.id !== id); this.save(); }
+    async pull() {
+      if (!session) return;
+      try { tasks = (await api("/api/tasks")).tasks; cache(); showSync(""); render(); }
+      catch (e) { if (session) showSync("Offline. Showing your last synced list."); }
+    },
+    put(id, data) {
+      tasks = tasks.filter(t => t.id !== id).concat({ id, ...data }); cache(); render();
+      send(api("/api/tasks/" + id, { method: "PUT", body: data }), true);
+    },
+    patch(id, p) {
+      const t = tasks.find(x => x.id === id); if (!t) return;
+      const { id: _, ...rest } = { ...t, ...p };
+      this.put(id, rest);
+    },
+    remove(id) {
+      tasks = tasks.filter(t => t.id !== id); cache(); render();
+      send(api("/api/tasks/" + id, { method: "DELETE" }), true);
+    }
   };
-  window.addEventListener("storage", e => { if (e.key === "dl.tasks") { store.load(); render(); } });
+
+  // Tasks made before accounts existed live under dl.tasks; upload them once.
+  async function migrateLocal() {
+    const old = ls.get("dl.tasks", null);
+    if (!old) return;
+    for (const [id, d] of Object.entries(old)) {
+      try { await api("/api/tasks/" + id, { method: "PUT", body: d }); } catch { return; }
+    }
+    try { localStorage.removeItem("dl.tasks"); } catch {}
+  }
+
+  // ---------- sign in ----------
+  async function showAuth() {
+    $("app").hidden = true; $("auth").hidden = false;
+    $("aError").textContent = "";
+    let open = false;
+    try { open = (await api("/api/status")).signupOpen; } catch { $("aError").textContent = "Can't reach the server. Check your connection."; }
+    $("auth").dataset.mode = open ? "register" : "login";
+    $("aSubmit").textContent = open ? "Create account" : "Sign in";
+    $("authHint").textContent = open ? "Create your account. You'll use it to sign in on your phone and computer." : "Sign in to see your tasks on every device.";
+    $("aPass").autocomplete = open ? "new-password" : "current-password";
+    $("aUser").focus();
+  }
+  $("auth").addEventListener("submit", async e => {
+    e.preventDefault();
+    $("aSubmit").disabled = true; $("aError").textContent = "";
+    try {
+      const mode = $("auth").dataset.mode === "register" ? "register" : "login";
+      session = await api("/api/" + mode, { method: "POST", body: { username: $("aUser").value, password: $("aPass").value } });
+      ls.set("dl.session", session);
+      $("aPass").value = "";
+      await startApp();
+    } catch (err) { $("aError").textContent = err.message; }
+    $("aSubmit").disabled = false;
+  });
+  function signOutLocal() {
+    session = null; tasks = [];
+    try { localStorage.removeItem("dl.session"); localStorage.removeItem("dl.cache"); } catch {}
+    showAuth();
+  }
+  $("signOut").onclick = async () => { try { await api("/api/logout", { method: "POST" }); } catch {} signOutLocal(); };
+
+  async function startApp() {
+    $("auth").hidden = true; $("app").hidden = false;
+    $("who").textContent = session.username;
+    tasks = ls.get("dl.cache", []);
+    render();
+    await migrateLocal();
+    await store.pull();
+    setTimeout(checkReminders, 500);
+  }
 
   // ---------- schedule ----------
   function scheduledOn(t, date, dow) {
@@ -52,6 +134,7 @@
     const text = document.createElement("button");
     text.className = "text"; text.type = "button";
     text.textContent = t.title;
+    if (t.note) { const n = document.createElement("span"); n.className = "note"; n.textContent = t.note; text.append(n); }
     const sub = showRepeat ? repeatText(t) : (t.repeat !== "once" ? repeatText(t) : (t.date < today ? "Overdue" : ""));
     if (sub) { const s = document.createElement("span"); s.className = "rep"; s.textContent = sub; text.append(s); }
     text.onclick = () => openEdit(t);
@@ -84,13 +167,18 @@
     if (!title) { $("addTitle").focus(); return; }
     const daily = $("addRepeat").getAttribute("aria-pressed") === "true";
     store.put(newId(), {
-      title, time: $("addTime").value || null,
+      title, note: $("addNote").value.trim(), time: $("addTime").value || null,
       repeat: daily ? "daily" : "once", days: [], date: daily ? null : ymd(new Date()),
       lastDone: null, createdAt: Date.now()
     });
-    $("addTitle").value = ""; $("addTime").value = "";
+    $("addTitle").value = ""; $("addNote").value = ""; $("addTime").value = "";
+    growNote();
     $("addTitle").focus();
   });
+  // Enter in the topic jumps to the description; the description grows as you type.
+  $("addTitle").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing && $("addTitle").value.trim()) { e.preventDefault(); $("addNote").focus(); } });
+  const growNote = () => { const n = $("addNote"); n.style.height = "auto"; n.style.height = n.scrollHeight + "px"; };
+  $("addNote").addEventListener("input", growNote);
 
   // ---------- edit sheet ----------
   let editing = null, eDays = [], confirmDelete = false;
@@ -113,6 +201,7 @@
     editing = t; confirmDelete = false;
     $("eDelete").textContent = "Delete";
     $("eTitle").value = t.title;
+    $("eNote").value = t.note || "";
     $("eTime").value = t.time || "";
     $("eRepeat").value = t.repeat;
     $("eDate").value = t.date || ymd(new Date());
@@ -136,7 +225,7 @@
     const repeat = $("eRepeat").value;
     const { id, ...prev } = editing;
     store.put(id, {
-      ...prev, title, repeat, time: $("eTime").value || null,
+      ...prev, title, note: $("eNote").value.trim(), repeat, time: $("eTime").value || null,
       days: repeat === "days" ? eDays.slice().sort() : [],
       date: repeat === "once" ? ($("eDate").value || ymd(new Date())) : null,
       lastDone: repeat === prev.repeat ? prev.lastDone : null
@@ -206,15 +295,16 @@
   $("tSnooze").onclick = () => { const s = remState(); s.snooze[toastTask.id] = Date.now() + 10 * 60 * 1000; ls.set("dl.rem", s); hideToast(); };
   $("tClose").onclick = hideToast;
 
-  let lastMinute = "";
+  // Re-render each minute, pick up changes from other devices every 30 s and when the app comes back.
+  let lastMinute = "", ticks = 0;
   setInterval(() => {
+    if (!session) return;
     const m = hm(new Date());
     if (m !== lastMinute) { lastMinute = m; render(); }
+    if (++ticks % 2 === 0 && !document.hidden && !editing) store.pull();
     checkReminders();
   }, 15000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); checkReminders(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && session) { store.pull(); checkReminders(); } });
 
-  store.load();
-  render();
-  setTimeout(checkReminders, 1000);
+  session ? startApp() : showAuth();
 })();

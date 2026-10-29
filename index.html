@@ -16,7 +16,16 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="wrap">
+<form class="auth" id="auth" hidden>
+  <h1>MyReminder</h1>
+  <p class="auth-hint" id="authHint">Sign in to see your tasks on every device.</p>
+  <input id="aUser" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+  <input id="aPass" type="password" placeholder="Password" autocomplete="current-password" required>
+  <button type="submit" class="save" id="aSubmit">Sign in</button>
+  <p class="auth-error" id="aError" role="alert"></p>
+</form>
+
+<div class="wrap" id="app" hidden>
   <header>
     <div>
       <p class="date" id="date"></p>
@@ -26,12 +35,16 @@
   </header>
 
   <button class="notice" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
+  <p class="notice warn" id="syncMsg" hidden></p>
 
   <form class="add" id="addForm" autocomplete="off">
-    <input id="addTitle" type="text" placeholder="Add a task" maxlength="140" aria-label="New task">
-    <input id="addTime" type="time" aria-label="Reminder time">
-    <button type="button" id="addRepeat" class="chip" aria-pressed="false">Daily</button>
-    <button type="submit" class="add-btn" aria-label="Add">+</button>
+    <input id="addTitle" type="text" placeholder="Topic" maxlength="140" aria-label="Topic">
+    <textarea id="addNote" rows="1" placeholder="Description (optional)" maxlength="2000" aria-label="Description"></textarea>
+    <div class="add-row">
+      <input id="addTime" type="time" aria-label="Reminder time">
+      <button type="button" id="addRepeat" class="chip" aria-pressed="false">Daily</button>
+      <button type="submit" class="add-btn" aria-label="Add task">+</button>
+    </div>
   </form>
 
   <ul id="list" class="list"></ul>
@@ -41,11 +54,14 @@
     <summary>Other days <span id="otherCount"></span></summary>
     <ul id="other" class="list"></ul>
   </details>
+
+  <p class="account"><span id="who"></span> · <button type="button" class="link" id="signOut">Sign out</button></p>
 </div>
 
 <div class="scrim" id="scrim" hidden>
   <form class="sheet" id="editForm" autocomplete="off">
-    <input id="eTitle" type="text" required maxlength="140" aria-label="Task">
+    <input id="eTitle" type="text" required maxlength="140" placeholder="Topic" aria-label="Topic">
+    <textarea id="eNote" rows="3" maxlength="2000" placeholder="Description" aria-label="Description"></textarea>
     <label>Time <input id="eTime" type="time"></label>
     <label>Repeat
       <select id="eRepeat">
@@ -75,6 +91,7 @@
   </div>
 </div>
 
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+name = "myreminder-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Origins allowed to call the API (the GitHub Pages site and local dev).
+[vars]
+ALLOWED_ORIGINS = "https://primexnev.github.io,http://localhost:8765"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "myreminder"
+# Filled in after `npx wrangler d1 create myreminder`.
+database_id = "00000000-0000-0000-0000-000000000000"
