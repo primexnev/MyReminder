@@ -31,17 +31,18 @@
 </form>
 
 <div class="layout" id="app" hidden>
-  <div class="side">
-    <header class="top">
-      <div class="top-row">
-        <div>
-          <p class="day-name" id="dayName"></p>
-          <h1 id="date"></h1>
-        </div>
-        <p class="count" id="count"></p>
-      </div>
+  <header class="top">
+    <div class="when">
+      <p class="day-name" id="dayName"></p>
+      <h1 id="date"></h1>
+    </div>
+    <div class="progress">
+      <p class="count" id="count"></p>
       <div class="bar" aria-hidden="true"><span id="bar"></span></div>
-    </header>
+    </div>
+  </header>
+
+  <div class="side">
 
     <button class="banner" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
     <p class="banner warn" id="syncMsg" hidden></p>
@@ -89,6 +90,10 @@
   </main>
 
   <div class="extra">
+    <div class="trash" id="trash" aria-label="Trash: drop a task here to delete it">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4.5h4V6M6 6l.7 10h6.6L14 6M8.5 9v4.5M11.5 9v4.5"/></svg>
+      <span>Drag a task here to delete it</span>
+    </div>
     <details class="other" id="otherWrap" hidden>
       <summary>Other days <span id="otherCount"></span></summary>
       <ul id="other" class="cards"></ul>
@@ -138,6 +143,11 @@
     <button type="button" id="tSnooze">10 min</button>
     <button type="button" id="tClose" aria-label="Dismiss">✕</button>
   </div>
+</div>
+
+<div class="snack" id="snack" role="status" hidden>
+  <span id="snackText"></span>
+  <button type="button" id="snackUndo">Undo</button>
 </div>
 
 <script src="config.js"></script>

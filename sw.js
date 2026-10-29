@@ -1,6 +1,6 @@
 // App shell cache: network first (revalidating past the browser's HTTP cache, since
 // GitHub Pages sends max-age=600) so new versions show up at once; cache is the offline fallback.
-const CACHE = "myreminder-v7";
+const CACHE = "myreminder-v8";
 const SHELL = ["./", "index.html", "styles.css", "config.js", "app.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", e => {

@@ -176,8 +176,11 @@
 
     if (!other) {
       li.draggable = true;
-      li.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); });
-      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+      li.addEventListener("dragstart", e => {
+        e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move";
+        li.classList.add("dragging"); document.body.classList.add("dragging-task");
+      });
+      li.addEventListener("dragend", () => { li.classList.remove("dragging"); document.body.classList.remove("dragging-task"); });
     }
     return li;
   }
@@ -214,6 +217,30 @@
       const t = tasks.find(x => x.id === e.dataTransfer.getData("text/plain"));
       if (t && statusOf(t, ymd(new Date())) !== col) setStatus(t, col);
     });
+  });
+
+  // Trash: drop a card to delete it, with a few seconds to undo.
+  let undoTimer = null, undoTask = null;
+  function deleteWithUndo(t) {
+    const { id, ...data } = t;
+    store.remove(id);
+    undoTask = { id, data };
+    $("snackText").textContent = `Deleted “${t.title}”`;
+    $("snack").hidden = false;
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { $("snack").hidden = true; undoTask = null; }, 6000);
+  }
+  $("snackUndo").onclick = () => {
+    if (undoTask) store.put(undoTask.id, undoTask.data);
+    undoTask = null; clearTimeout(undoTimer); $("snack").hidden = true;
+  };
+  const trash = $("trash");
+  trash.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; trash.classList.add("over"); });
+  trash.addEventListener("dragleave", e => { if (!trash.contains(e.relatedTarget)) trash.classList.remove("over"); });
+  trash.addEventListener("drop", e => {
+    e.preventDefault(); trash.classList.remove("over"); document.body.classList.remove("dragging-task");
+    const t = tasks.find(x => x.id === e.dataTransfer.getData("text/plain"));
+    if (t) deleteWithUndo(t);
   });
 
   // Phone: one column at a time, picked with the tabs.
@@ -282,7 +309,7 @@
   document.addEventListener("keydown", e => { if (e.key === "Escape" && editing) closeEdit(); });
   $("eDelete").onclick = () => {
     if (!confirmDelete) { confirmDelete = true; $("eDelete").textContent = "Tap again to delete"; return; }
-    store.remove(editing.id); closeEdit();
+    const t = editing; closeEdit(); deleteWithUndo(t);
   };
   $("editForm").addEventListener("submit", e => {
     e.preventDefault();

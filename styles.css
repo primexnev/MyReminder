@@ -40,15 +40,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: 0; padding: 0; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-/* Phone: one stack. Wide screens: a sticky side panel with the composer, the board on the right. */
-.layout { max-width: 1320px; margin: 0 auto; display: grid; gap: 22px; }
-.side { display: grid; gap: 18px; align-content: start; }
-.extra { display: grid; gap: 8px; align-content: start; }
+/* Phone: one stack. Wide screens: header across the top, composer panel on the left,
+   a full-height board on the right whose columns scroll on their own. */
+.layout { max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
+.side, .extra { display: grid; gap: 16px; align-content: start; }
 @media (min-width: 900px) {
-  .layout { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "side board" "extra board"; align-items: start; column-gap: 28px; }
-  .side { grid-area: side; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); }
-  .board { grid-area: board; }
-  .extra { grid-area: extra; }
+  body { padding-top: calc(env(safe-area-inset-top, 0px) + 28px); padding-bottom: 28px; }
+  .layout {
+    height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
+    grid-template-columns: 360px minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "top top" "side board" "extra board";
+    column-gap: 32px; row-gap: 20px;
+  }
+  .top { grid-area: top; }
+  .side { grid-area: side; }
+  .board { grid-area: board; min-height: 0; display: flex; flex-direction: column; }
+  .extra { grid-area: extra; min-height: 0; overflow: auto; grid-template-rows: auto auto 1fr; }
+  .account { align-self: end; }
 }
 
 /* buttons */
@@ -61,13 +70,15 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .danger { color: var(--late); }
 
 /* header */
-.top { display: grid; gap: 14px; padding: 4px 2px 2px; }
-.top-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 32px; flex-wrap: wrap; padding: 0 2px; }
 .day-name { margin: 0; color: var(--accent); font-weight: 700; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; }
 h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em; line-height: 1.1; }
-.count { margin: 0 0 4px; color: var(--muted); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.progress { display: grid; gap: 8px; flex: 1; min-width: 200px; max-width: 360px; }
+.count { margin: 0; color: var(--muted); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
 .bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .4s ease; }
+@media (max-width: 899px) { .progress { max-width: none; flex-basis: 100%; } .count { text-align: left; } }
+@media (min-width: 900px) { h1 { font-size: 40px; } }
 
 /* banners */
 .banner { display: block; width: 100%; margin: 0; text-align: left; background: var(--accent-soft); color: var(--accent); border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; }
@@ -129,6 +140,26 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
   .tabs { display: none; }
   .columns { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
 }
+@media (min-width: 900px) {
+  .columns { flex: 1; min-height: 0; align-items: stretch; }
+  .column { display: flex; flex-direction: column; min-height: 0; padding: 14px; }
+  .column .cards { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding: 2px; margin: -2px; }
+}
+
+/* trash: a drop target next to the composer (dragging needs a mouse, so wide screens only) */
+.trash { display: none; }
+@media (min-width: 760px) {
+  .trash { display: flex; align-items: center; gap: 12px; padding: 18px; border-radius: 16px; border: 2px dashed var(--line); color: var(--faint); font-size: 14px; font-weight: 600; transition: background .15s, border-color .15s, color .15s, transform .15s; }
+  .trash svg { width: 24px; height: 24px; flex: none; }
+  body.dragging-task .trash { border-color: var(--late); color: var(--late); }
+  .trash.over { background: var(--late-soft); border-style: solid; transform: scale(1.02); }
+}
+
+/* undo bar after a delete */
+.snack { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); z-index: 20;
+  display: flex; align-items: center; gap: 18px; max-width: calc(100% - 28px); background: var(--fg); color: var(--bg); border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
+.snack span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snack button { color: var(--accent-soft); font-weight: 800; flex: none; }
 
 /* card details for the board */
 .item[draggable="true"] { cursor: grab; }
@@ -182,6 +213,6 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
 .toast p { margin: 0; flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
 .toast-actions { display: flex; gap: 14px; font-size: 14px; font-weight: 600; }
 .toast button { color: inherit; opacity: .75; }
-.toast #tDone { opacity: 1; color: var(--accent); }
+.toast #tDone { opacity: 1; color: var(--accent-soft); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
