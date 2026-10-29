@@ -62,6 +62,16 @@
         <button type="submit" class="btn-primary add-btn">Add</button>
       </div>
     </form>
+
+    <section class="classes" id="classes" aria-labelledby="classesTitle">
+      <div class="classes-head">
+        <h2 id="classesTitle"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 7.5 10 4l7.5 3.5L10 11z"/><path d="M5.5 9v4c1.2 1.2 2.7 1.8 4.5 1.8s3.3-.6 4.5-1.8V9M17.5 7.5V12"/></svg>Today's classes</h2>
+        <button type="button" class="link" id="calEdit">Change</button>
+      </div>
+      <ul class="class-list" id="classList"></ul>
+      <p class="classes-empty" id="classEmpty" hidden></p>
+      <button type="button" class="banner" id="calConnect" hidden>Connect your school calendar to see today's classes here</button>
+    </section>
   </div>
 
   <main class="board" id="board" data-active="todo">
@@ -129,6 +139,26 @@
       <button type="button" class="link danger" id="eDelete">Delete</button>
       <button type="button" class="btn-ghost" id="eCancel">Cancel</button>
       <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+</div>
+
+<div class="scrim" id="calScrim" hidden>
+  <form class="sheet" id="calForm" autocomplete="off">
+    <div class="grabber" aria-hidden="true"></div>
+    <h2 class="sheet-heading">School calendar</h2>
+    <p class="sheet-help">Paste your Google Calendar's iCal link. Only your account can see it, and the app just reads it.</p>
+    <input id="calUrl" class="sheet-input" type="url" inputmode="url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" aria-label="Calendar link" spellcheck="false" autocapitalize="none">
+    <ol class="steps">
+      <li>Open <b>Google Calendar</b> on a computer and go to <b>Settings</b> (gear icon).</li>
+      <li>On the left, click your school calendar under <b>Settings for my calendars</b>.</li>
+      <li>Scroll to <b>Integrate calendar</b> and copy <b>Secret address in iCal format</b>.</li>
+    </ol>
+    <p class="auth-error" id="calError" role="alert"></p>
+    <div class="sheet-actions">
+      <button type="button" class="link danger" id="calRemove" hidden>Disconnect</button>
+      <button type="button" class="btn-ghost" id="calCancel">Cancel</button>
+      <button type="submit" class="btn-primary" id="calSave">Connect</button>
     </div>
   </form>
 </div>

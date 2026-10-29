@@ -2,6 +2,7 @@
 // Only one account can ever be created; after that, sign-up is closed.
 
 import { b64url, sendPush } from "./push.js";
+import { toIcsUrl, eventsBetween, validTz } from "./calendar.js";
 
 const enc = new TextEncoder();
 const PBKDF2_ITERATIONS = 100000;
@@ -163,7 +164,52 @@ async function handle(req, env) {
     return json({ sent }, 200, h);
   }
 
+  // School calendar: the iCal address is stored server-side; the app only ever gets the events.
+  if (path === "/api/calendar" && req.method === "GET") {
+    const calUrl = await env.DB.prepare("SELECT cal_url FROM settings WHERE user_id = ?").bind(userId).first("cal_url");
+    if (!calUrl) return json({ connected: false, events: [] }, 200, h);
+    const r = await calendarEvents(calUrl, url.searchParams);
+    return json({ connected: true, ...r }, r.error ? 502 : 200, h);
+  }
+  if (path === "/api/calendar" && req.method === "PUT") {
+    const calUrl = toIcsUrl((await readJson(req))?.url);
+    if (!calUrl) return json({ error: "That doesn't look like a calendar link. Paste the iCal address (it ends in .ics)." }, 400, h);
+    const r = await calendarEvents(calUrl, url.searchParams);
+    if (r.error) return json({ error: r.error }, 400, h);
+    await env.DB.prepare(
+      "INSERT INTO settings (user_id, cal_url, updated_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET cal_url = excluded.cal_url, updated_at = excluded.updated_at"
+    ).bind(userId, calUrl, Date.now()).run();
+    return json({ connected: true, ...r }, 200, h);
+  }
+  if (path === "/api/calendar" && req.method === "DELETE") {
+    await env.DB.prepare("UPDATE settings SET cal_url = NULL, updated_at = ? WHERE user_id = ?").bind(Date.now(), userId).run();
+    return json({ connected: false, events: [] }, 200, h);
+  }
+
   return json({ error: "Not found" }, 404, h);
+}
+
+// ---------- school calendar ----------
+
+const MAX_CAL_BYTES = 5 * 1024 * 1024;
+
+// ?from=YYYY-MM-DD&days=N&tz=Zone → { events } or { error }.
+async function calendarEvents(calUrl, q) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(q.get("from") || "") ? q.get("from") : new Date().toISOString().slice(0, 10);
+  const days = Math.min(31, Math.max(1, parseInt(q.get("days") || "7", 10) || 7));
+  const tz = validTz(q.get("tz") || "") ? q.get("tz") : "UTC";
+  let res;
+  try {
+    res = await fetch(calUrl, { headers: { Accept: "text/calendar" }, redirect: "follow" });
+  } catch { return { error: "Couldn't reach your calendar. Try again in a minute." }; }
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { error: "Google won't share this calendar from that link. Use the “Secret address in iCal format” from the calendar's settings." };
+  }
+  if (!res.ok) return { error: `Your calendar answered with an error (${res.status}). Try again later.` };
+  const text = await res.text();
+  if (text.length > MAX_CAL_BYTES) return { error: "That calendar is too large to load." };
+  if (!text.includes("BEGIN:VCALENDAR")) return { error: "That link isn't an iCal calendar. Paste the iCal address (it ends in .ics)." };
+  return { events: eventsBetween(text, from, days, tz) };
 }
 
 // ---------- reminders ----------

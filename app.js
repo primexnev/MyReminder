@@ -87,8 +87,8 @@
     $("aSubmit").disabled = false;
   });
   function signOutLocal() {
-    session = null; tasks = [];
-    try { localStorage.removeItem("dl.session"); localStorage.removeItem("dl.cache"); } catch {}
+    session = null; tasks = []; cal = null;
+    try { localStorage.removeItem("dl.session"); localStorage.removeItem("dl.cache"); localStorage.removeItem("dl.cal"); } catch {}
     showAuth();
   }
   $("signOut").onclick = async () => {
@@ -104,6 +104,7 @@
     render();
     await migrateLocal();
     await store.pull();
+    loadCal(true);
     syncPush().catch(() => {}).finally(paintNotify);
     setTimeout(checkReminders, 500);
   }
@@ -205,6 +206,7 @@
     $("otherWrap").hidden = !others.length;
     $("otherCount").textContent = `(${others.length})`;
     $("other").replaceChildren(...others.map(t => card(t, today, nowHM, true)));
+    renderClasses();
   }
 
   // Drag cards between columns (desktop); on phones the Start / Pause / check buttons do the same.
@@ -326,6 +328,92 @@
     });
     closeEdit();
   });
+
+  // ---------- school calendar ----------
+  // The server reads the calendar; we keep the next week's events locally and refresh every 10 minutes.
+  const CAL_REFRESH = 10 * 60 * 1000;
+  let cal = ls.get("dl.cal", null); // {connected, events, from, fetchedAt, error}
+  const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const calQuery = () => `?from=${ymd(new Date())}&days=8&tz=${encodeURIComponent(tz())}`;
+  function setCal(c) { cal = { ...c, from: ymd(new Date()), fetchedAt: Date.now() }; ls.set("dl.cal", cal); renderClasses(); }
+  async function loadCal(force) {
+    if (!session) return;
+    if (!force && cal && cal.from === ymd(new Date()) && Date.now() - cal.fetchedAt < CAL_REFRESH) return;
+    try { setCal(await api("/api/calendar" + calQuery())); }
+    catch (e) { if (session) setCal({ connected: true, events: cal?.events || [], error: e.message }); }
+  }
+
+  function renderClasses() {
+    const sec = $("classes");
+    sec.hidden = !cal;
+    if (!cal) return;
+    const on = !!cal.connected;
+    sec.querySelector(".classes-head").hidden = !on;
+    $("calConnect").hidden = on;
+    sec.classList.toggle("off", !on);
+    if (!on) { $("classList").replaceChildren(); $("classEmpty").hidden = true; return; }
+
+    const now = new Date(), today = ymd(now), nowHM = hm(now);
+    const todays = (cal.events || []).filter(e => e.date === today);
+    $("classList").replaceChildren(...todays.map(e => {
+      const past = e.start && (e.end ? e.end <= nowHM : e.start < nowHM);
+      const live = e.start && e.start <= nowHM && e.end && nowHM < e.end;
+      const li = el("li", "class-item" + (live ? " now" : past ? " past" : ""));
+      const time = el("div", "class-time", e.start || "All day");
+      if (e.end) time.append(el("small", "", e.end));
+      const what = el("div", "class-title", e.title);
+      if (e.location) what.append(el("span", "class-where", e.location));
+      if (live) {
+        const [h, m] = e.end.split(":").map(Number), left = h * 60 + m - (now.getHours() * 60 + now.getMinutes());
+        what.append(el("span", "class-left", `Now · ends in ${left >= 60 ? Math.floor(left / 60) + " h " : ""}${left % 60} min`));
+      }
+      li.append(time, what);
+      return li;
+    }));
+
+    const empty = $("classEmpty");
+    empty.hidden = !!todays.length && !cal.error;
+    if (cal.error) { empty.textContent = cal.error; return; }
+    if (todays.length) return;
+    const next = (cal.events || []).find(e => e.date > today && e.start) || (cal.events || []).find(e => e.date > today);
+    empty.replaceChildren("No classes today.");
+    if (next) {
+      const [y, m, d] = next.date.split("-").map(Number);
+      const day = new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short" });
+      empty.append(" Next: ", el("b", "", `${day}${next.start ? " " + next.start : ""} · ${next.title}`));
+    }
+  }
+
+  let calConfirm = false;
+  function openCal() {
+    calConfirm = false;
+    $("calRemove").textContent = "Disconnect";
+    $("calRemove").hidden = !cal?.connected;
+    $("calSave").textContent = cal?.connected ? "Save" : "Connect";
+    $("calUrl").value = ""; $("calError").textContent = "";
+    $("calScrim").hidden = false;
+    $("calUrl").focus();
+  }
+  const closeCal = () => { $("calScrim").hidden = true; };
+  $("calEdit").onclick = openCal;
+  $("calConnect").onclick = openCal;
+  $("calCancel").onclick = closeCal;
+  $("calScrim").addEventListener("click", e => { if (e.target === $("calScrim")) closeCal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("calScrim").hidden) closeCal(); });
+  $("calForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const url = $("calUrl").value.trim();
+    if (!url) { $("calUrl").focus(); return; }
+    $("calSave").disabled = true; $("calError").textContent = "";
+    try { setCal(await api("/api/calendar" + calQuery(), { method: "PUT", body: { url } })); closeCal(); }
+    catch (err) { $("calError").textContent = err.message; }
+    $("calSave").disabled = false;
+  });
+  $("calRemove").onclick = async () => {
+    if (!calConfirm) { calConfirm = true; $("calRemove").textContent = "Tap again to disconnect"; return; }
+    try { setCal(await api("/api/calendar", { method: "DELETE" })); closeCal(); }
+    catch (err) { $("calError").textContent = err.message; }
+  };
 
   // ---------- notifications ----------
   // The server sends a push at each task's time; this device just needs to be subscribed.
@@ -450,9 +538,10 @@
     const m = hm(new Date());
     if (m !== lastMinute) { lastMinute = m; render(); }
     if (++ticks % 2 === 0 && !document.hidden && !editing) store.pull();
+    loadCal();
     checkReminders();
   }, 15000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && session) { store.pull(); checkReminders(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && session) { store.pull(); loadCal(); checkReminders(); } });
 
   session ? startApp() : showAuth();
 })();

@@ -37,3 +37,10 @@ CREATE TABLE IF NOT EXISTS sent (
   sent_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, task_id, slot)
 );
+
+-- Per-user settings; cal_url is the school calendar's iCal address (kept secret, never sent back in full).
+CREATE TABLE IF NOT EXISTS settings (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  cal_url TEXT,
+  updated_at INTEGER NOT NULL
+);
