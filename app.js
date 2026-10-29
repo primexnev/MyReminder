@@ -151,11 +151,13 @@
 
   function render() {
     const now = new Date(), today = ymd(now), dow = now.getDay(), nowHM = hm(now);
-    $("date").textContent = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+    $("dayName").textContent = now.toLocaleDateString(undefined, { weekday: "long" });
+    $("date").textContent = now.toLocaleDateString(undefined, { day: "numeric", month: "long" });
     const todays = tasks.filter(t => scheduledOn(t, today, dow));
     const open = todays.filter(t => !isDone(t, today)).sort(byTime);
     const done = todays.filter(t => isDone(t, today)).sort(byTime);
-    $("count").textContent = todays.length ? `${done.length} of ${todays.length}` : "";
+    $("count").textContent = todays.length ? `${done.length} of ${todays.length} done` : "";
+    $("bar").style.width = todays.length ? `${(done.length / todays.length) * 100}%` : "0";
     $("list").replaceChildren(...open.concat(done).map(t => row(t, today, nowHM, false)));
     $("empty").hidden = todays.length > 0;
     const others = tasks.filter(t => !scheduledOn(t, today, dow) && !(t.repeat === "once" && t.lastDone && t.date < today)).sort(byTime);

@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MyReminder</title>
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f4f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101312" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MyReminder">
@@ -13,78 +13,106 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
 <form class="auth" id="auth" hidden>
+  <img src="icons/icon-192.png" alt="" class="auth-icon" width="64" height="64">
   <h1>MyReminder</h1>
   <p class="auth-hint" id="authHint">Sign in to see your tasks on every device.</p>
   <input id="aUser" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
   <input id="aPass" type="password" placeholder="Password" autocomplete="current-password" required>
-  <button type="submit" class="save" id="aSubmit">Sign in</button>
+  <button type="submit" class="btn-primary" id="aSubmit">Sign in</button>
   <p class="auth-error" id="aError" role="alert"></p>
 </form>
 
 <div class="wrap" id="app" hidden>
-  <header>
-    <div>
-      <p class="date" id="date"></p>
-      <h1>Today</h1>
+  <header class="top">
+    <div class="top-row">
+      <div>
+        <p class="day-name" id="dayName"></p>
+        <h1 id="date"></h1>
+      </div>
+      <p class="count" id="count"></p>
     </div>
-    <p class="count" id="count"></p>
+    <div class="bar" aria-hidden="true"><span id="bar"></span></div>
   </header>
 
-  <button class="notice" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
-  <p class="notice warn" id="syncMsg" hidden></p>
+  <button class="banner" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
+  <p class="banner warn" id="syncMsg" hidden></p>
 
-  <form class="add" id="addForm" autocomplete="off">
-    <input id="addTitle" type="text" placeholder="Topic" maxlength="140" aria-label="Topic">
-    <textarea id="addNote" rows="1" placeholder="Description (optional)" maxlength="2000" aria-label="Description"></textarea>
-    <div class="add-row">
-      <input id="addTime" type="time" aria-label="Reminder time">
-      <button type="button" id="addRepeat" class="chip" aria-pressed="false">Daily</button>
-      <button type="submit" class="add-btn" aria-label="Add task">+</button>
+  <form class="composer" id="addForm" autocomplete="off">
+    <input id="addTitle" type="text" placeholder="What do you need to do?" maxlength="140" aria-label="Topic">
+    <textarea id="addNote" rows="1" placeholder="Add a description" maxlength="2000" aria-label="Description"></textarea>
+    <div class="composer-row">
+      <label class="pill time-pill">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 6v4.2l2.6 1.6"/></svg>
+        <input id="addTime" type="time" aria-label="Reminder time">
+      </label>
+      <button type="button" id="addRepeat" class="pill toggle" aria-pressed="false">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 9a6 6 0 0 1 10.5-3.9M16 11a6 6 0 0 1-10.5 3.9"/><path d="M14.8 2.6v2.8H12M5.2 17.4v-2.8H8"/></svg>
+        Daily
+      </button>
+      <button type="submit" class="btn-primary add-btn">Add</button>
     </div>
   </form>
 
-  <ul id="list" class="list"></ul>
-  <p class="empty" id="empty" hidden>Nothing for today. Add a task above.</p>
+  <section>
+    <ul id="list" class="cards"></ul>
+    <div class="empty" id="empty" hidden>
+      <p class="empty-title">All clear for today</p>
+      <p>Add a task above. Turn on Daily for things you do every day.</p>
+    </div>
+  </section>
 
-  <details id="otherWrap" hidden>
+  <details class="other" id="otherWrap" hidden>
     <summary>Other days <span id="otherCount"></span></summary>
-    <ul id="other" class="list"></ul>
+    <ul id="other" class="cards"></ul>
   </details>
 
-  <p class="account"><span id="who"></span> <button type="button" class="link" id="testPush" hidden>Send test notification</button> <button type="button" class="link" id="signOut">Sign out</button></p>
+  <footer class="account">
+    <span id="who"></span>
+    <button type="button" class="link" id="testPush" hidden>Send test notification</button>
+    <button type="button" class="link" id="signOut">Sign out</button>
+  </footer>
 </div>
 
 <div class="scrim" id="scrim" hidden>
   <form class="sheet" id="editForm" autocomplete="off">
-    <input id="eTitle" type="text" required maxlength="140" placeholder="Topic" aria-label="Topic">
+    <div class="grabber" aria-hidden="true"></div>
+    <input id="eTitle" class="sheet-title" type="text" required maxlength="140" placeholder="Topic" aria-label="Topic">
     <textarea id="eNote" rows="3" maxlength="2000" placeholder="Description" aria-label="Description"></textarea>
-    <label>Time <input id="eTime" type="time"></label>
-    <label>Repeat
-      <select id="eRepeat">
-        <option value="once">Never</option>
-        <option value="daily">Every day</option>
-        <option value="weekdays">Weekdays</option>
-        <option value="days">Chosen days</option>
-      </select>
-    </label>
+    <div class="fields">
+      <label class="field"><span>Time</span><input id="eTime" type="time"></label>
+      <label class="field"><span>Repeat</span>
+        <select id="eRepeat">
+          <option value="once">Never</option>
+          <option value="daily">Every day</option>
+          <option value="weekdays">Weekdays</option>
+          <option value="days">Chosen days</option>
+        </select>
+      </label>
+      <label class="field" id="eDateWrap"><span>Date</span><input id="eDate" type="date"></label>
+    </div>
     <div class="days" id="eDays" hidden></div>
-    <label id="eDateWrap">Date <input id="eDate" type="date"></label>
     <div class="sheet-actions">
       <button type="button" class="link danger" id="eDelete">Delete</button>
-      <span></span>
-      <button type="button" class="link" id="eCancel">Cancel</button>
-      <button type="submit" class="save">Save</button>
+      <button type="button" class="btn-ghost" id="eCancel">Cancel</button>
+      <button type="submit" class="btn-primary">Save</button>
     </div>
   </form>
 </div>
 
 <div class="toast" id="toast" role="alert" hidden>
+  <div class="toast-icon" aria-hidden="true">
+    <svg viewBox="0 0 20 20"><path d="M10 3a5 5 0 0 0-5 5v3l-1.5 2.5h13L15 11V8a5 5 0 0 0-5-5zM8 16a2 2 0 0 0 4 0"/></svg>
+  </div>
   <p id="tTitle"></p>
-  <div>
+  <div class="toast-actions">
     <button type="button" id="tDone">Done</button>
     <button type="button" id="tSnooze">10 min</button>
     <button type="button" id="tClose" aria-label="Dismiss">✕</button>
