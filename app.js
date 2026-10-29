@@ -303,10 +303,16 @@
   // ---------- notifications ----------
   // The server sends a push at each task's time; this device just needs to be subscribed.
   const swReady = "serviceWorker" in navigator
-    ? navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).catch(() => null)
+    ? navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(() => navigator.serviceWorker.ready).catch(() => null)
     : Promise.resolve(null);
   let swReg = null, pushOn = false;
   swReady.then(r => { swReg = r; });
+  // When a new version's service worker takes over, reload once so the page matches it.
+  if (navigator.serviceWorker?.controller) {
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) swReg?.update().catch(() => {}); });
   const canNotify = "Notification" in window;
   const canPush = canNotify && "PushManager" in window;
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);

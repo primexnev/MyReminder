@@ -1,5 +1,6 @@
-// App shell cache: network first so new versions show up, cache as offline fallback.
-const CACHE = "myreminder-v6";
+// App shell cache: network first (revalidating past the browser's HTTP cache, since
+// GitHub Pages sends max-age=600) so new versions show up at once; cache is the offline fallback.
+const CACHE = "myreminder-v7";
 const SHELL = ["./", "index.html", "styles.css", "config.js", "app.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", e => {
@@ -15,7 +16,7 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return res; })
       .catch(() => caches.match(e.request).then(r => r || caches.match("index.html")))
   );
