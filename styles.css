@@ -49,16 +49,41 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
   .layout {
     height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
     grid-template-columns: 360px minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-    grid-template-areas: "top top" "side board" "extra board";
-    column-gap: 32px; row-gap: 20px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "top top" "side stage" "extra stage";
+    column-gap: 32px; row-gap: 16px;
   }
   .top { grid-area: top; }
-  .side { grid-area: side; }
-  .board { grid-area: board; min-height: 0; display: flex; flex-direction: column; }
-  .extra { grid-area: extra; min-height: 0; overflow: auto; grid-template-rows: auto auto 1fr; }
-  .account { align-self: end; }
+  /* the classes card takes whatever height the composer leaves */
+  .side { grid-area: side; min-height: 0; display: flex; flex-direction: column; }
+  .side > .classes { flex: 1 1 auto; min-height: 140px; display: flex; flex-direction: column; }
+  .side > .classes.off { flex: none; min-height: 0; }
+  .classes .class-list { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
+  .stage { grid-area: stage; min-height: 0; display: flex; gap: 20px; }
+  .board { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .extra { grid-area: extra; }
+  .other[open] .cards { max-height: 30vh; overflow-y: auto; padding: 2px; }
+  .account { margin-top: 4px; }
 }
+
+/* views: Tasks (board), Split (board + today's timeline), Calendar (the week) */
+.planner { display: none; }
+.layout[data-view="calendar"] .board { display: none; }
+.layout[data-view="calendar"] .planner { display: flex; }
+@media (min-width: 900px) {
+  .layout[data-view="split"] .planner { display: flex; width: 380px; flex: none; }
+  .layout[data-view="split"] .side > .classes { display: none; }
+  .layout[data-view="calendar"] .planner { flex: 1; min-width: 0; }
+}
+@media (max-width: 899px) { .views .wide-only, .layout[data-view="calendar"] .side > .classes { display: none; } }
+
+/* view switcher in the header */
+.views { display: flex; gap: 4px; background: var(--column); border-radius: 12px; padding: 4px; margin-left: auto; }
+.views button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 9px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.views svg { width: 17px; height: 17px; }
+.views button[aria-selected="true"] { background: var(--card); color: var(--fg); box-shadow: var(--shadow); }
+.views button[aria-selected="true"] svg { color: var(--accent); }
+@media (max-width: 899px) { .views { order: 3; margin-left: 0; flex-basis: 100%; } .views button { flex: 1; justify-content: center; } }
 
 /* buttons */
 .btn-primary { background: var(--accent); color: var(--on-accent); font-weight: 700; border-radius: 12px; padding: 10px 18px; transition: transform .1s, opacity .15s; }
@@ -112,6 +137,64 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
 .class-item.past { opacity: .45; }
 .class-item.now { background: var(--accent-soft); }
 .class-item.now .class-time { color: var(--accent); }
+.classes-tools { display: flex; align-items: center; gap: 10px; }
+.icon-btn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: var(--muted); background: var(--field); flex: none; }
+.icon-btn:hover { color: var(--fg); }
+.icon-btn svg { width: 17px; height: 17px; }
+.btn-ghost.small { padding: 6px 12px; border-radius: 9px; font-size: 14px; }
+
+/* planner: a time grid (wide screens) or a day-by-day agenda (phones) */
+.planner { flex-direction: column; min-height: 0; background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 14px 0 0; overflow: hidden; }
+.planner-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px 12px; }
+.planner-head h2 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
+.week-nav { display: flex; align-items: center; gap: 6px; }
+.layout[data-view="split"] .week-nav { display: none; }
+.tgrid { display: none; flex: 1; min-height: 0; flex-direction: column; --hh: 52px; }
+.tg-row { display: grid; grid-template-columns: 52px repeat(var(--days), minmax(0, 1fr)); }
+.tg-head { border-bottom: 1px solid var(--line); }
+.tg-day { padding: 0 6px 10px; text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.tg-day b { display: block; margin: 2px auto 0; width: 34px; height: 34px; line-height: 34px; border-radius: 50%; font-size: 18px; color: var(--fg); letter-spacing: 0; }
+.tg-day.today { color: var(--accent); }
+.tg-day.today b { background: var(--accent); color: var(--on-accent); }
+.tg-allday { border-bottom: 1px solid var(--line); padding: 6px 0; }
+.tg-allday > span { font-size: 11px; color: var(--faint); font-weight: 600; text-align: right; padding: 3px 8px 0 0; }
+.tg-allday .cell { display: grid; gap: 3px; padding: 0 3px; align-content: start; }
+.chip { font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 2px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg-body { flex: 1; min-height: 0; overflow-y: auto; }
+.tg-body .tg-row { position: relative; height: calc(var(--hours) * var(--hh)); }
+.tg-hours { position: relative; }
+.tg-hours span { position: absolute; right: 8px; transform: translateY(-50%); font-size: 11px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tg-col { position: relative; border-left: 1px solid var(--line);
+  background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px var(--hh)); }
+.tg-col.today { background-color: color-mix(in srgb, var(--accent-soft) 35%, transparent); }
+.ev { position: absolute; border-radius: 8px; padding: 4px 7px; overflow: hidden; font-size: 12px; line-height: 1.25; background: var(--accent-soft); color: var(--fg); border-left: 3px solid var(--accent); text-align: left; }
+.ev b { display: block; font-weight: 700; overflow-wrap: break-word; hyphens: auto; }
+.ev small { display: block; color: var(--muted); font-size: 11px; }
+.ev.past { opacity: .55; }
+.ev.task { background: var(--card); border: 1px dashed var(--faint); border-left: 3px solid var(--doing); cursor: pointer; }
+.ev.task.done b { text-decoration: line-through; color: var(--muted); }
+.now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--late); z-index: 2; pointer-events: none; }
+.now-line::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--late); }
+.agenda { flex: 1; overflow-y: auto; padding: 0 16px 16px; display: grid; gap: 16px; align-content: start; }
+.agenda h3 { margin: 0 0 6px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.agenda h3.today { color: var(--accent); }
+.agenda .class-list { gap: 0; }
+.agenda .none { margin: 0; color: var(--faint); font-size: 14px; }
+@media (min-width: 900px) { .tgrid { display: flex; } .agenda { display: none; } }
+.class-item.task .class-title { font-weight: 600; }
+.classes .class-list { margin: 0 -10px; padding: 0 10px; overflow-x: hidden; }
+
+/* a narrow board (Split view) shows one column at a time, like on a phone */
+.board { container-type: inline-size; }
+@container (max-width: 640px) {
+  .board .tabs { display: flex; }
+  .board .columns { grid-template-columns: minmax(0, 1fr); }
+  .board[data-active="todo"] .column:not([data-col="todo"]),
+  .board[data-active="doing"] .column:not([data-col="doing"]),
+  .board[data-active="done"] .column:not([data-col="done"]) { display: none; }
+  .board .column h2 { display: none; }
+}
+.class-item.task .class-time { color: var(--doing); }
 .class-left { display: block; font-size: 13px; font-weight: 700; color: var(--accent); margin-top: 2px; }
 .classes-empty { margin: 0; color: var(--faint); font-size: 14px; }
 .classes-empty b { color: var(--muted); font-weight: 600; }
@@ -158,7 +241,7 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
   .board[data-active="doing"] .column:not([data-col="doing"]),
   .board[data-active="done"] .column:not([data-col="done"]) { display: none; }
   .column { background: none; padding: 0; min-height: 0; }
-  .column h2 { display: none; }
+  .board .column h2 { display: none; }
 }
 @media (min-width: 760px) {
   .tabs { display: none; }

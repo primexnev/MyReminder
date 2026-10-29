@@ -104,6 +104,7 @@
     render();
     await migrateLocal();
     await store.pull();
+    setView(view);
     loadCal(true);
     syncPush().catch(() => {}).finally(paintNotify);
     setTimeout(checkReminders, 500);
@@ -206,7 +207,7 @@
     $("otherWrap").hidden = !others.length;
     $("otherCount").textContent = `(${others.length})`;
     $("other").replaceChildren(...others.map(t => card(t, today, nowHM, true)));
-    renderClasses();
+    renderCalendarParts();
   }
 
   // Drag cards between columns (desktop); on phones the Start / Pause / check buttons do the same.
@@ -334,8 +335,10 @@
   const CAL_REFRESH = 10 * 60 * 1000;
   let cal = ls.get("dl.cal", null); // {connected, events, from, fetchedAt, error}
   const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const calQuery = () => `?from=${ymd(new Date())}&days=8&tz=${encodeURIComponent(tz())}`;
-  function setCal(c) { cal = { ...c, from: ymd(new Date()), fetchedAt: Date.now() }; ls.set("dl.cal", cal); renderClasses(); }
+  const calStart = () => ymd(mondayOf(new Date()));
+  // This week and next, so the calendar view has both without another request.
+  const calQuery = () => `?from=${calStart()}&days=14&tz=${encodeURIComponent(tz())}`;
+  function setCal(c) { cal = { ...c, start: calStart(), from: ymd(new Date()), fetchedAt: Date.now() }; ls.set("dl.cal", cal); renderCalendarParts(); }
   async function loadCal(force) {
     if (!session) return;
     if (!force && cal && cal.from === ymd(new Date()) && Date.now() - cal.fetchedAt < CAL_REFRESH) return;
@@ -382,6 +385,178 @@
       const day = new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short" });
       empty.append(" Next: ", el("b", "", `${day}${next.start ? " " + next.start : ""} · ${next.title}`));
     }
+  }
+  function renderCalendarParts() { renderClasses(); renderPlanner(); }
+
+  // ---------- views: Tasks, Split (board + today's timeline), Calendar (week) ----------
+  const VIEWS = ["board", "split", "calendar"];
+  let view = VIEWS.includes(ls.get("dl.view", "board")) ? ls.get("dl.view", "board") : "board";
+  let weekOffset = 0, scrollToNow = true;
+  const weekCache = {}, weekPending = new Set(); // other weeks, fetched on demand
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const mondayOf = d => addDays(d, -((d.getDay() + 6) % 7));
+  const toMin = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+
+  function setView(v) {
+    view = v; weekOffset = 0; scrollToNow = true;
+    $("app").dataset.view = v;
+    document.querySelectorAll(".views button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
+    ls.set("dl.view", v);
+    renderPlanner();
+  }
+  document.querySelectorAll(".views button").forEach(b => { b.onclick = () => setView(b.dataset.view); });
+  $("calExpand").onclick = () => setView("calendar");
+  $("weekPrev").onclick = () => { weekOffset--; scrollToNow = true; renderPlanner(); };
+  $("weekNext").onclick = () => { weekOffset++; scrollToNow = true; renderPlanner(); };
+  $("weekToday").onclick = () => { weekOffset = 0; scrollToNow = true; renderPlanner(); };
+
+  // Classes on a day: from the main two-week copy, or a week fetched while browsing.
+  function classesOn(date) {
+    if (!cal?.connected) return [];
+    if (cal.start && date >= cal.start && date < ymd(addDays(new Date(cal.start + "T00:00"), 14))) return (cal.events || []).filter(e => e.date === date);
+    const [y, m, d] = date.split("-").map(Number), mon = ymd(mondayOf(new Date(y, m - 1, d)));
+    if (weekCache[mon]) return weekCache[mon].filter(e => e.date === date);
+    fetchWeek(mon);
+    return [];
+  }
+  async function fetchWeek(mon) {
+    if (weekPending.has(mon) || !session) return;
+    weekPending.add(mon);
+    try { weekCache[mon] = (await api(`/api/calendar?from=${mon}&days=7&tz=${encodeURIComponent(tz())}`)).events || []; renderPlanner(); }
+    catch {} finally { weekPending.delete(mon); }
+  }
+  function tasksOn(date, today) {
+    const [y, m, d] = date.split("-").map(Number), dow = new Date(y, m - 1, d).getDay();
+    return tasks.filter(t => t.time && (t.repeat === "once" ? t.date === date : scheduledOn(t, date, dow)))
+      .map(t => ({ task: t, done: date === today ? isDone(t, today) : t.lastDone === date }));
+  }
+  // Everything timed on a day, as minutes from midnight.
+  function itemsOn(date, today) {
+    const items = classesOn(date).map(e => e.start
+      ? { s: toMin(e.start), e: e.end ? Math.max(toMin(e.end), toMin(e.start) + 15) : toMin(e.start) + 60, title: e.title, sub: e.location, start: e.start, end: e.end }
+      : { allDay: true, title: e.title });
+    for (const { task, done } of tasksOn(date, today)) items.push({ s: toMin(task.time), e: toMin(task.time) + 30, title: task.title, start: task.time, task, done });
+    return items.sort((a, b) => (a.s ?? -1) - (b.s ?? -1));
+  }
+  const dayLabel = (d, today) => {
+    const s = ymd(d);
+    if (s === today) return "Today";
+    if (s === ymd(addDays(new Date(), 1))) return "Tomorrow";
+    return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+  };
+
+  function renderPlanner() {
+    if (view === "board" || !session) return;
+    const now = new Date(), today = ymd(now), nowMin = now.getHours() * 60 + now.getMinutes();
+    const days = view === "split" ? [new Date(now.getFullYear(), now.getMonth(), now.getDate())]
+      : Array.from({ length: 7 }, (_, i) => addDays(mondayOf(now), weekOffset * 7 + i));
+    if (view === "split") $("plannerTitle").textContent = "Today";
+    else {
+      const a = days[0], b = days[6], o = { day: "numeric", month: "short" };
+      $("plannerTitle").textContent = `${a.toLocaleDateString(undefined, o)} – ${b.toLocaleDateString(undefined, { ...o, year: "numeric" })}`;
+    }
+    const perDay = days.map(d => ({ d, date: ymd(d), items: itemsOn(ymd(d), today) }));
+    renderGrid(perDay, today, nowMin);
+    renderAgenda(perDay, today, nowMin);
+  }
+
+  function renderGrid(perDay, today, nowMin) {
+    const grid = $("tgrid"), oldBody = grid.querySelector(".tg-body"), keep = oldBody && !scrollToNow ? oldBody.scrollTop : null;
+    const timed = perDay.flatMap(p => p.items.filter(i => !i.allDay));
+    const startH = Math.max(0, Math.min(7, ...timed.map(i => Math.floor(i.s / 60))));
+    const endH = Math.min(24, Math.max(20, ...timed.map(i => Math.ceil(i.e / 60))));
+    grid.style.setProperty("--days", perDay.length);
+    grid.style.setProperty("--hours", endH - startH);
+    const at = min => `calc(${(min - startH * 60) / 60} * var(--hh))`;
+
+    const head = el("div", "tg-row tg-head");
+    head.append(el("span"));
+    for (const p of perDay) {
+      const c = el("div", "tg-day" + (p.date === today ? " today" : ""), p.d.toLocaleDateString(undefined, { weekday: "short" }));
+      c.append(el("b", "", String(p.d.getDate())));
+      head.append(c);
+    }
+    const parts = [head];
+    if (perDay.some(p => p.items.some(i => i.allDay))) {
+      const row = el("div", "tg-row tg-allday");
+      row.append(el("span", "", "All day"));
+      for (const p of perDay) {
+        const cell = el("div", "cell");
+        p.items.filter(i => i.allDay).forEach(i => { const c = el("span", "chip", i.title); c.title = i.title; cell.append(c); });
+        row.append(cell);
+      }
+      parts.push(row);
+    }
+
+    const body = el("div", "tg-body"), row = el("div", "tg-row"), hours = el("div", "tg-hours");
+    for (let h = startH + 1; h < endH; h++) { const l = el("span", "", `${pad(h)}:00`); l.style.top = at(h * 60); hours.append(l); }
+    row.append(hours);
+    for (const p of perDay) {
+      const col = el("div", "tg-col" + (p.date === today ? " today" : ""));
+      // Side-by-side lanes for anything that overlaps.
+      const list = p.items.filter(i => !i.allDay);
+      let group = [], groupEnd = -1;
+      const flush = () => { const n = Math.max(...group.map(g => g.lane)) + 1; group.forEach(g => { g.n = n; }); group = []; };
+      for (const it of list) {
+        if (it.s >= groupEnd && group.length) flush();
+        const lanes = group.reduce((acc, g) => { acc[g.lane] = Math.max(acc[g.lane] ?? -1, g.e); return acc; }, []);
+        let lane = lanes.findIndex(end => end <= it.s);
+        if (lane < 0) lane = lanes.length;
+        it.lane = lane; group.push(it); groupEnd = Math.max(groupEnd, it.e);
+      }
+      if (group.length) flush();
+      for (const it of list) {
+        const past = p.date < today || (p.date === today && it.e <= nowMin);
+        const ev = el(it.task ? "button" : "div", "ev" + (it.task ? " task" : "") + (it.done ? " done" : "") + (past ? " past" : ""));
+        ev.style.top = at(it.s);
+        ev.style.height = `calc(${Math.max(it.e - it.s, 25) / 60} * var(--hh) - 2px)`;
+        ev.style.left = `calc(${(it.lane / it.n) * 100}% + 2px)`;
+        ev.style.width = `calc(${100 / it.n}% - 4px)`;
+        ev.append(el("b", "", it.title), el("small", "", it.start + (it.end ? "–" + it.end : "") + (it.sub ? " · " + it.sub : "")));
+        if (it.task) { ev.type = "button"; ev.onclick = () => openEdit(it.task); }
+        ev.title = it.title;
+        col.append(ev);
+      }
+      if (p.date === today && nowMin >= startH * 60 && nowMin <= endH * 60) { const line = el("div", "now-line"); line.style.top = at(nowMin); col.append(line); }
+      row.append(col);
+    }
+    body.append(row);
+    parts.push(body);
+    grid.replaceChildren(...parts);
+
+    if (keep != null) body.scrollTop = keep;
+    else if (grid.offsetParent) {
+      // Open at the current hour on this week, otherwise at the first class.
+      const hh = parseFloat(getComputedStyle(grid).getPropertyValue("--hh")) || 52;
+      const inView = perDay.some(p => p.date === today);
+      const target = inView ? nowMin - 60 : Math.min(...timed.map(i => i.s), 8 * 60) - 30;
+      body.scrollTop = Math.max(0, (target - startH * 60) / 60 * hh);
+      scrollToNow = false;
+    }
+  }
+
+  function renderAgenda(perDay, today, nowMin) {
+    // On the phone list, this week starts at today; past days are only clutter.
+    $("agenda").replaceChildren(...perDay.filter(p => weekOffset !== 0 || p.date >= today).map(p => {
+      const wrap = el("section");
+      wrap.append(el("h3", p.date === today ? "today" : "", dayLabel(p.d, today)));
+      if (!p.items.length) { wrap.append(el("p", "none", "Nothing planned")); return wrap; }
+      const ul = el("ul", "class-list");
+      for (const it of p.items) {
+        const past = p.date < today || (p.date === today && !it.allDay && it.e <= nowMin);
+        const live = p.date === today && !it.allDay && !it.task && it.s <= nowMin && nowMin < it.e;
+        const li = el("li", "class-item" + (it.task ? " task" : "") + (live ? " now" : past || it.done ? " past" : ""));
+        const time = el("div", "class-time", it.allDay ? "All day" : it.start);
+        if (it.end) time.append(el("small", "", it.end));
+        const what = el("div", "class-title", it.title);
+        if (it.sub) what.append(el("span", "class-where", it.sub));
+        if (it.task) { what.append(el("span", "class-where", it.done ? "Task · done" : "Task")); li.onclick = () => openEdit(it.task); li.style.cursor = "pointer"; }
+        li.append(time, what);
+        ul.append(li);
+      }
+      wrap.append(ul);
+      return wrap;
+    }));
   }
 
   let calConfirm = false;
