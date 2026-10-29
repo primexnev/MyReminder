@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MyReminder</title>
-<meta name="theme-color" content="#2346c9">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MyReminder">
@@ -12,86 +13,65 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="wrap">
   <header>
     <div>
-      <div class="eyebrow" id="weekday">Today</div>
-      <h1 id="date">Your day</h1>
+      <p class="date" id="date"></p>
+      <h1>Today</h1>
     </div>
-    <div class="meter" aria-live="polite">
-      <svg viewBox="0 0 52 52" aria-hidden="true">
-        <circle cx="26" cy="26" r="21" fill="none" stroke="var(--line)" stroke-width="6"></circle>
-        <circle id="ring" cx="26" cy="26" r="21" fill="none" stroke="var(--done)" stroke-width="6" stroke-linecap="round" transform="rotate(-90 26 26)" stroke-dasharray="131.95" stroke-dashoffset="131.95"></circle>
-      </svg>
-      <div class="meter-text"><b id="meterNum">0 / 0</b>done today</div>
-    </div>
+    <p class="count" id="count"></p>
   </header>
 
-  <div class="toolbar">
-    <div class="tabs" role="tablist">
-      <button role="tab" id="tabToday" aria-selected="true">Today</button>
-      <button role="tab" id="tabAll" aria-selected="false">All tasks</button>
-    </div>
-    <div class="toolbar-right">
-      <button class="ghost" id="notifyBtn" type="button">Turn on notifications</button>
-      <button class="ghost" id="soundBtn" type="button">Sound: on</button>
-    </div>
-  </div>
+  <button class="notice" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
 
-  <main id="list" class="sheet" aria-live="polite">
-    <div class="empty"><strong>Loading your list…</strong></div>
-  </main>
-  <p class="note" id="storeNote">Reminders pop up and chime while this page is open.</p>
+  <form class="add" id="addForm" autocomplete="off">
+    <input id="addTitle" type="text" placeholder="Add a task" maxlength="140" aria-label="New task">
+    <input id="addTime" type="time" aria-label="Reminder time">
+    <button type="button" id="addRepeat" class="chip" aria-pressed="false">Daily</button>
+    <button type="submit" class="add-btn" aria-label="Add">+</button>
+  </form>
+
+  <ul id="list" class="list"></ul>
+  <p class="empty" id="empty" hidden>Nothing for today. Add a task above.</p>
+
+  <details id="otherWrap" hidden>
+    <summary>Other days <span id="otherCount"></span></summary>
+    <ul id="other" class="list"></ul>
+  </details>
 </div>
 
-<button class="fab" id="newBtn" type="button">+ New task</button>
-
 <div class="scrim" id="scrim" hidden>
-  <form class="panel" id="form" autocomplete="off">
-    <h3 id="formTitle">New task</h3>
-    <label>What needs doing?
-      <input type="text" id="fTitle" required maxlength="140" placeholder="e.g. Take vitamins">
+  <form class="sheet" id="editForm" autocomplete="off">
+    <input id="eTitle" type="text" required maxlength="140" aria-label="Task">
+    <label>Time <input id="eTime" type="time"></label>
+    <label>Repeat
+      <select id="eRepeat">
+        <option value="once">Never</option>
+        <option value="daily">Every day</option>
+        <option value="weekdays">Weekdays</option>
+        <option value="days">Chosen days</option>
+      </select>
     </label>
-    <div class="two">
-      <label>Remind me at
-        <input type="time" id="fTime">
-      </label>
-      <label>Repeats
-        <select id="fRepeat">
-          <option value="daily">Every day</option>
-          <option value="weekdays">Weekdays (Mon–Fri)</option>
-          <option value="days">Chosen days</option>
-          <option value="once">One day only</option>
-        </select>
-      </label>
-    </div>
-    <div id="daysWrap" hidden>
-      <label id="daysLabel">On these days</label>
-      <div class="days" id="fDays" role="group" aria-labelledby="daysLabel"></div>
-    </div>
-    <label id="dateWrap" hidden>Date
-      <input type="date" id="fDate">
-    </label>
-    <div class="panel-actions">
-      <button type="button" class="ghost" id="cancelBtn">Cancel</button>
-      <button type="submit" class="primary" id="saveBtn">Add task</button>
+    <div class="days" id="eDays" hidden></div>
+    <label id="eDateWrap">Date <input id="eDate" type="date"></label>
+    <div class="sheet-actions">
+      <button type="button" class="link danger" id="eDelete">Delete</button>
+      <span></span>
+      <button type="button" class="link" id="eCancel">Cancel</button>
+      <button type="submit" class="save">Save</button>
     </div>
   </form>
 </div>
 
 <div class="toast" id="toast" role="alert" hidden>
-  <div class="t-eyebrow" id="tEyebrow">Reminder</div>
-  <div class="t-title" id="tTitle"></div>
-  <div class="t-actions">
-    <button type="button" class="t-done" id="tDone">Mark done</button>
-    <button type="button" id="tSnooze">Snooze 10 min</button>
-    <button type="button" id="tDismiss">Dismiss</button>
+  <p id="tTitle"></p>
+  <div>
+    <button type="button" id="tDone">Done</button>
+    <button type="button" id="tSnooze">10 min</button>
+    <button type="button" id="tClose" aria-label="Dismiss">✕</button>
   </div>
 </div>
 
