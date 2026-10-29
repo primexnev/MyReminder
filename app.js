@@ -91,7 +91,11 @@
     try { localStorage.removeItem("dl.session"); localStorage.removeItem("dl.cache"); } catch {}
     showAuth();
   }
-  $("signOut").onclick = async () => { try { await api("/api/logout", { method: "POST" }); } catch {} signOutLocal(); };
+  $("signOut").onclick = async () => {
+    await dropPush();
+    try { await api("/api/logout", { method: "POST" }); } catch {}
+    signOutLocal();
+  };
 
   async function startApp() {
     $("auth").hidden = true; $("app").hidden = false;
@@ -100,6 +104,7 @@
     render();
     await migrateLocal();
     await store.pull();
+    syncPush().catch(() => {}).finally(paintNotify);
     setTimeout(checkReminders, 500);
   }
 
@@ -234,11 +239,59 @@
   });
 
   // ---------- notifications ----------
-  let swReg = null;
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").then(r => { swReg = r; }).catch(() => {});
+  // The server sends a push at each task's time; this device just needs to be subscribed.
+  const swReady = "serviceWorker" in navigator
+    ? navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).catch(() => null)
+    : Promise.resolve(null);
+  let swReg = null, pushOn = false;
+  swReady.then(r => { swReg = r; });
   const canNotify = "Notification" in window;
-  const paintNotify = () => { $("notifyBtn").hidden = !canNotify || Notification.permission !== "default"; };
-  $("notifyBtn").onclick = async () => { try { await Notification.requestPermission(); } catch {} paintNotify(); };
+  const canPush = canNotify && "PushManager" in window;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const keyBytes = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+
+  async function syncPush() {
+    if (!canPush || Notification.permission !== "granted" || !session) return;
+    const reg = await swReady;
+    if (!reg) return;
+    const sub = await reg.pushManager.getSubscription()
+      || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(window.MYREMINDER_VAPID) });
+    const j = sub.toJSON();
+    await api("/api/push", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+    pushOn = true;
+  }
+  async function dropPush() {
+    try {
+      const sub = await (await swReady)?.pushManager.getSubscription();
+      if (sub) await api("/api/push", { method: "DELETE", body: { endpoint: sub.endpoint } });
+    } catch {}
+    pushOn = false;
+  }
+  function paintNotify() {
+    const b = $("notifyBtn");
+    $("testPush").hidden = !canPush || Notification.permission !== "granted";
+    if (isIOS && !standalone) {
+      b.hidden = false; b.disabled = true;
+      b.textContent = "For notifications on iPhone: tap Share → Add to Home Screen, then open MyReminder from your home screen.";
+      return;
+    }
+    b.disabled = false;
+    b.textContent = "Turn on notifications to get reminders";
+    b.hidden = !canPush || Notification.permission !== "default";
+  }
+  $("notifyBtn").onclick = async () => {
+    try { await Notification.requestPermission(); await syncPush(); showSync(""); }
+    catch (e) { showSync("Couldn't turn on notifications: " + e.message); }
+    paintNotify();
+  };
+  $("testPush").onclick = async () => {
+    try {
+      await syncPush();
+      const r = await api("/api/push/test", { method: "POST" });
+      showSync(r.sent ? "" : "This device isn't set up for notifications yet.");
+    } catch (e) { showSync(e.message); }
+  };
   paintNotify();
 
   let audio = null;
@@ -285,7 +338,7 @@
     $("toast").hidden = false;
     chime();
     try { navigator.vibrate?.([120, 80, 120]); } catch {}
-    if (document.hidden && canNotify && Notification.permission === "granted") {
+    if (document.hidden && !pushOn && canNotify && Notification.permission === "granted") {
       const opts = { body: "Due at " + t.time, tag: "task-" + t.id, icon: "icons/icon-192.png", badge: "icons/icon-192.png" };
       try { swReg ? swReg.showNotification(t.title, opts) : new Notification(t.title, opts); } catch {}
     }

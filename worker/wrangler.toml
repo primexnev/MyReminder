@@ -5,6 +5,13 @@ compatibility_date = "2025-09-01"
 # Origins allowed to call the API (the GitHub Pages site and local dev).
 [vars]
 ALLOWED_ORIGINS = "https://primexnev.github.io,http://localhost:8765"
+VAPID_SUBJECT = "https://primexnev.github.io/MyReminder/"
+VAPID_PUBLIC_KEY = "BFSvguLr9nAAjIBK7g20q5qYDNMHF_WvOYAdfkhIeCUwDSl5RPb9FaqJb780BbfBAXosaSa-BM1PbsF2-L8i5DY"
+# VAPID_PRIVATE_JWK is a secret: `npx wrangler secret put VAPID_PRIVATE_JWK`
+
+# Check for due reminders every minute.
+[triggers]
+crons = ["* * * * *"]
 
 [[d1_databases]]
 binding = "DB"

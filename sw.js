@@ -1,5 +1,5 @@
 // App shell cache: network first so new versions show up, cache as offline fallback.
-const CACHE = "myreminder-v3";
+const CACHE = "myreminder-v4";
 const SHELL = ["./", "index.html", "styles.css", "config.js", "app.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", e => {

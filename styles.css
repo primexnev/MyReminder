@@ -55,7 +55,7 @@ textarea { font: inherit; color: inherit; }
 .note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 15px; color: var(--muted); white-space: pre-line; }
 .item .text { font-weight: 500; }
 .notice.warn { color: var(--due); margin-top: 0; }
-.account { margin-top: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+.account { margin-top: 40px; display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; }
 
 .auth { max-width: 340px; margin: 12vh auto 0; display: grid; gap: 12px; }
 .auth h1 { margin-bottom: 0; }

@@ -1,11 +1,13 @@
-// MyReminder API: accounts, sessions and task sync on Cloudflare D1.
+// MyReminder API: accounts, sessions and task sync on Cloudflare D1, plus reminder pushes from a cron.
 // Only one account can ever be created; after that, sign-up is closed.
+
+import { b64url, sendPush } from "./push.js";
 
 const enc = new TextEncoder();
 const PBKDF2_ITERATIONS = 100000;
 const SESSION_DAYS = 180;
+const CATCH_UP_MINUTES = 10;
 
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const randomToken = (bytes = 32) => b64url(crypto.getRandomValues(new Uint8Array(bytes)));
 const sha256 = async s => b64url(await crypto.subtle.digest("SHA-256", enc.encode(s)));
 
@@ -139,7 +141,88 @@ async function handle(req, env) {
     return json({ ok: true }, 200, h);
   }
 
+  if (path === "/api/push" && req.method === "POST") {
+    const b = await readJson(req);
+    const endpoint = String(b?.endpoint || "");
+    if (!/^https:\/\//.test(endpoint) || typeof b?.keys?.p256dh !== "string" || typeof b?.keys?.auth !== "string") return json({ error: "Invalid subscription." }, 400, h);
+    let tz = String(b?.tz || "UTC");
+    try { new Intl.DateTimeFormat("en", { timeZone: tz }); } catch { tz = "UTC"; }
+    await env.DB.prepare(
+      "INSERT INTO push_subs (endpoint, user_id, p256dh, auth, tz, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, tz = excluded.tz, updated_at = excluded.updated_at"
+    ).bind(endpoint, userId, b.keys.p256dh, b.keys.auth, tz, Date.now()).run();
+    return json({ ok: true }, 200, h);
+  }
+  if (path === "/api/push" && req.method === "DELETE") {
+    const b = await readJson(req);
+    await env.DB.prepare("DELETE FROM push_subs WHERE user_id = ? AND endpoint = ?").bind(userId, String(b?.endpoint || "")).run();
+    return json({ ok: true }, 200, h);
+  }
+  if (path === "/api/push/test" && req.method === "POST") {
+    const sent = await pushToUser(env, userId, { title: "MyReminder", body: "Notifications are working.", tag: "test" });
+    return json({ sent }, 200, h);
+  }
+
   return json({ error: "Not found" }, 404, h);
+}
+
+// ---------- reminders ----------
+
+async function pushToUser(env, userId, message) {
+  const { results: subs } = await env.DB.prepare("SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id = ?").bind(userId).all();
+  let sent = 0;
+  for (const sub of subs) {
+    try {
+      const status = await sendPush(env, sub, message);
+      if (status === 404 || status === 410) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?").bind(sub.endpoint).run();
+      else if (status < 300) sent++;
+      else console.error("push failed", status, new URL(sub.endpoint).host);
+    } catch (e) { console.error("push error", e); }
+  }
+  return sent;
+}
+
+function localNow(tz) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23"
+  }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return {
+    date: `${p.year}-${p.month}-${p.day}`,
+    minutes: Number(p.hour) * 60 + Number(p.minute),
+    dow: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday)
+  };
+}
+
+// Same rules as the app's scheduledOn / isDone.
+function dueToday(t, date, dow) {
+  if (t.repeat === "daily") return t.lastDone !== date;
+  if (t.repeat === "weekdays") return dow >= 1 && dow <= 5 && t.lastDone !== date;
+  if (t.repeat === "days") return (t.days || []).includes(dow) && t.lastDone !== date;
+  return t.date === date && !t.lastDone;
+}
+
+async function runReminders(env) {
+  // Each user's clock comes from their most recently registered device.
+  const { results } = await env.DB.prepare("SELECT user_id, tz FROM push_subs ORDER BY updated_at DESC").all();
+  const users = new Map();
+  for (const r of results) if (!users.has(r.user_id)) users.set(r.user_id, r.tz);
+
+  for (const [userId, tz] of users) {
+    const now = localNow(tz);
+    const { results: rows } = await env.DB.prepare("SELECT id, data FROM tasks WHERE user_id = ?").bind(userId).all();
+    for (const row of rows) {
+      const t = JSON.parse(row.data);
+      if (!t.time || !dueToday(t, now.date, now.dow)) continue;
+      const [hh, mm] = t.time.split(":").map(Number);
+      const late = now.minutes - (hh * 60 + mm);
+      if (late < 0 || late > CATCH_UP_MINUTES) continue;
+      // Claim the slot first so overlapping cron runs can't send twice.
+      const claim = await env.DB.prepare("INSERT OR IGNORE INTO sent (user_id, task_id, slot, sent_at) VALUES (?, ?, ?, ?)")
+        .bind(userId, row.id, `${now.date} ${t.time}`, Date.now()).run();
+      if (!claim.meta.changes) continue;
+      await pushToUser(env, userId, { title: t.title, body: t.note || `Due at ${t.time}`, tag: row.id });
+    }
+  }
+  await env.DB.prepare("DELETE FROM sent WHERE sent_at < ?").bind(Date.now() - 3 * 864e5).run();
 }
 
 export default {
@@ -150,5 +233,8 @@ export default {
       console.error(e);
       return json({ error: "Server error. Try again." }, 500, cors(req, env));
     }
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runReminders(env));
   }
 };
