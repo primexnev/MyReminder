@@ -1,5 +1,5 @@
 // MyReminder API: accounts, sessions and task sync on Cloudflare D1, plus reminder pushes from a cron.
-// Only one account can ever be created; after that, sign-up is closed.
+// Anyone can create an account; the first account is the owner and can read everyone's feedback.
 
 import { b64url, sendPush } from "./push.js";
 import { toIcsUrl, eventsBetween, validTz } from "./calendar.js";
@@ -58,6 +58,22 @@ async function authUser(req, env) {
   return row.user_id;
 }
 
+// Fixed-window counter; true once `key` has been used more than `max` times in the window.
+async function limited(env, key, max, windowMs) {
+  const now = Date.now();
+  const row = await env.DB.prepare(
+    "INSERT INTO attempts (key, count, window_start) VALUES (?1, 1, ?2) ON CONFLICT (key) DO UPDATE SET " +
+    "count = CASE WHEN window_start < ?3 THEN 1 ELSE count + 1 END, window_start = CASE WHEN window_start < ?3 THEN ?2 ELSE window_start END RETURNING count"
+  ).bind(key, now, now - windowMs).first();
+  return row.count > max;
+}
+const clientIp = req => req.headers.get("CF-Connecting-IP") || "local";
+const TOO_MANY = "Too many tries. Wait a few minutes and try again.";
+
+async function ownerId(env) {
+  return env.DB.prepare("SELECT id FROM users ORDER BY created_at LIMIT 1").first("id");
+}
+
 function validCreds(body) {
   const username = typeof body?.username === "string" ? body.username.trim() : "";
   const password = typeof body?.password === "string" ? body.password : "";
@@ -90,29 +106,30 @@ async function handle(req, env) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: h });
 
   if (path === "/api/status" && req.method === "GET") {
-    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
-    return json({ signupOpen: n === 0 }, 200, h);
+    return json({ signupOpen: true }, 200, h);
   }
 
   if (path === "/api/register" && req.method === "POST") {
     const c = validCreds(await readJson(req));
     if (c.error) return json({ error: c.error }, 400, h);
-    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
-    if (n > 0) return json({ error: "Sign-up is closed. Sign in with your existing account." }, 403, h);
+    if (await limited(env, "reg:" + clientIp(req), 5, 3600e3)) return json({ error: TOO_MANY }, 429, h);
+    const taken = await env.DB.prepare("SELECT 1 FROM users WHERE username = ?").bind(c.username).first();
+    if (taken) return json({ error: "That username is taken. Pick another one." }, 409, h);
     const id = crypto.randomUUID(), salt = randomToken(16);
     await env.DB.prepare("INSERT INTO users (id, username, pass_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)")
       .bind(id, c.username, await hashPassword(c.password, salt), salt, Date.now()).run();
-    return json({ token: await createSession(env, id), username: c.username }, 200, h);
+    return json({ token: await createSession(env, id), username: c.username, admin: (await ownerId(env)) === id }, 200, h);
   }
 
   if (path === "/api/login" && req.method === "POST") {
     const body = await readJson(req);
+    if (await limited(env, "login:" + clientIp(req), 20, 900e3)) return json({ error: TOO_MANY }, 429, h);
     const user = await env.DB.prepare("SELECT id, username, pass_hash, salt FROM users WHERE username = ?")
       .bind(String(body?.username || "").trim()).first();
     // Hash even when the user is missing so response time doesn't reveal it.
     const hash = await hashPassword(String(body?.password || ""), user?.salt || "x");
     if (!user || !timingSafeEqual(hash, user.pass_hash)) return json({ error: "Wrong username or password." }, 401, h);
-    return json({ token: await createSession(env, user.id), username: user.username }, 200, h);
+    return json({ token: await createSession(env, user.id), username: user.username, admin: (await ownerId(env)) === user.id }, 200, h);
   }
 
   const userId = await authUser(req, env);
@@ -122,6 +139,38 @@ async function handle(req, env) {
     const token = (req.headers.get("Authorization") || "").slice(7);
     await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
     return json({ ok: true }, 200, h);
+  }
+
+  if (path === "/api/me" && req.method === "GET") {
+    const username = await env.DB.prepare("SELECT username FROM users WHERE id = ?").bind(userId).first("username");
+    return json({ username, admin: (await ownerId(env)) === userId }, 200, h);
+  }
+
+  // Feedback: anyone signed in can send it; only the owner can read or delete it.
+  if (path === "/api/feedback" && req.method === "POST") {
+    const message = String((await readJson(req))?.message || "").trim().slice(0, 2000);
+    if (!message) return json({ error: "Write something first." }, 400, h);
+    if (await limited(env, "fb:" + userId, 10, 3600e3)) return json({ error: TOO_MANY }, 429, h);
+    const username = await env.DB.prepare("SELECT username FROM users WHERE id = ?").bind(userId).first("username");
+    await env.DB.prepare("INSERT INTO feedback (user_id, username, message, created_at) VALUES (?, ?, ?, ?)")
+      .bind(userId, username, message, Date.now()).run();
+    const owner = await ownerId(env);
+    if (owner && owner !== userId) {
+      try { await pushToUser(env, owner, { title: `Feedback from ${username}`, body: message.slice(0, 140), tag: "feedback" }); } catch {}
+    }
+    return json({ ok: true }, 200, h);
+  }
+  const fb = /^\/api\/feedback(?:\/(\d+))?$/.exec(path);
+  if (fb && (req.method === "GET" || req.method === "DELETE")) {
+    if ((await ownerId(env)) !== userId) return json({ error: "Not found" }, 404, h);
+    if (req.method === "GET" && !fb[1]) {
+      const { results } = await env.DB.prepare("SELECT id, username, message, created_at FROM feedback ORDER BY created_at DESC LIMIT 200").all();
+      return json({ feedback: results }, 200, h);
+    }
+    if (req.method === "DELETE" && fb[1]) {
+      await env.DB.prepare("DELETE FROM feedback WHERE id = ?").bind(Number(fb[1])).run();
+      return json({ ok: true }, 200, h);
+    }
   }
 
   if (path === "/api/tasks" && req.method === "GET") {
@@ -270,6 +319,7 @@ async function runReminders(env) {
     }
   }
   await env.DB.prepare("DELETE FROM sent WHERE sent_at < ?").bind(Date.now() - 3 * 864e5).run();
+  await env.DB.prepare("DELETE FROM attempts WHERE window_start < ?").bind(Date.now() - 864e5).run();
 }
 
 export default {

@@ -44,3 +44,19 @@ CREATE TABLE IF NOT EXISTS settings (
   cal_url TEXT,
   updated_at INTEGER NOT NULL
 );
+
+-- Feedback people send from the app; only the first account (the owner) can read it.
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- Rate limits for sign-up, sign-in and feedback: one row per key and time window.
+CREATE TABLE IF NOT EXISTS attempts (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  window_start INTEGER NOT NULL
+);

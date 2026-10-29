@@ -63,15 +63,22 @@
   }
 
   // ---------- sign in ----------
-  async function showAuth() {
-    $("app").hidden = true; $("auth").hidden = false;
+  // Anyone can sign up; returning people sign in. The link under the form switches between the two.
+  function setAuthMode(mode) {
+    const reg = mode === "register";
+    $("auth").dataset.mode = mode;
+    $("aSubmit").textContent = reg ? "Create account" : "Sign in";
+    $("authHint").textContent = reg ? "Pick a username and password. You'll use them on your phone and computer." : "Sign in to see your tasks on every device.";
+    $("aPass").autocomplete = reg ? "new-password" : "current-password";
+    $("aPass").placeholder = reg ? "Password (at least 8 characters)" : "Password";
+    $("authSwitchText").textContent = reg ? "Already have an account?" : "New here?";
+    $("authSwitch").textContent = reg ? "Sign in" : "Create an account";
     $("aError").textContent = "";
-    let open = false;
-    try { open = (await api("/api/status")).signupOpen; } catch { $("aError").textContent = "Can't reach the server. Check your connection."; }
-    $("auth").dataset.mode = open ? "register" : "login";
-    $("aSubmit").textContent = open ? "Create account" : "Sign in";
-    $("authHint").textContent = open ? "Create your account. You'll use it to sign in on your phone and computer." : "Sign in to see your tasks on every device.";
-    $("aPass").autocomplete = open ? "new-password" : "current-password";
+  }
+  $("authSwitch").onclick = () => { setAuthMode($("auth").dataset.mode === "register" ? "login" : "register"); $("aUser").focus(); };
+  function showAuth() {
+    $("app").hidden = true; $("auth").hidden = false;
+    setAuthMode("login");
     $("aUser").focus();
   }
   $("auth").addEventListener("submit", async e => {
@@ -100,6 +107,8 @@
   async function startApp() {
     $("auth").hidden = true; $("app").hidden = false;
     $("who").textContent = session.username;
+    $("fbInbox").hidden = !session.admin;
+    api("/api/me").then(me => { session = { ...session, ...me }; ls.set("dl.session", session); $("fbInbox").hidden = !me.admin; }).catch(() => {});
     tasks = ls.get("dl.cache", []);
     render();
     await migrateLocal();
@@ -592,6 +601,49 @@
     try { setCal(await api("/api/calendar", { method: "DELETE" })); closeCal(); }
     catch (err) { $("calError").textContent = err.message; }
   };
+
+  // ---------- feedback ----------
+  $("fbOpen").onclick = () => { $("fbText").value = ""; $("fbError").textContent = ""; $("fbError").classList.remove("sent-note"); $("fbScrim").hidden = false; $("fbText").focus(); };
+  const closeFb = () => { $("fbScrim").hidden = true; };
+  $("fbCancel").onclick = closeFb;
+  $("fbForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const message = $("fbText").value.trim();
+    if (!message) { $("fbText").focus(); return; }
+    $("fbSend").disabled = true; $("fbError").classList.remove("sent-note");
+    try {
+      await api("/api/feedback", { method: "POST", body: { message } });
+      $("fbText").value = ""; $("fbError").textContent = "Thanks! Your feedback was sent."; $("fbError").classList.add("sent-note");
+      setTimeout(closeFb, 1200);
+    } catch (err) { $("fbError").textContent = err.message; }
+    $("fbSend").disabled = false;
+  });
+
+  async function openInbox() {
+    $("inboxScrim").hidden = false;
+    $("fbEmpty").hidden = true;
+    $("fbList").replaceChildren(el("li", "classes-empty", "Loading…"));
+    try {
+      const { feedback } = await api("/api/feedback");
+      $("fbEmpty").hidden = feedback.length > 0;
+      $("fbList").replaceChildren(...feedback.map(f => {
+        const li = el("li", "fb-item"), meta = el("div", "fb-meta");
+        const del = el("button", "link danger", "Delete");
+        del.type = "button";
+        del.onclick = async () => {
+          if (del.dataset.armed !== "1") { del.dataset.armed = "1"; del.textContent = "Tap again"; return; }
+          try { await api("/api/feedback/" + f.id, { method: "DELETE" }); li.remove(); $("fbEmpty").hidden = $("fbList").children.length > 0; } catch {}
+        };
+        meta.append(el("b", "", f.username), new Date(f.created_at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }), del);
+        li.append(meta, el("p", "fb-msg", f.message));
+        return li;
+      }));
+    } catch (err) { $("fbList").replaceChildren(el("li", "classes-empty", err.message)); }
+  }
+  $("fbInbox").onclick = openInbox;
+  $("inboxClose").onclick = () => { $("inboxScrim").hidden = true; };
+  for (const id of ["fbScrim", "inboxScrim"]) $(id).addEventListener("click", e => { if (e.target === $(id)) $(id).hidden = true; });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { $("fbScrim").hidden = true; $("inboxScrim").hidden = true; } });
 
   // ---------- notifications ----------
   // The server sends a push at each task's time; this device just needs to be subscribed.

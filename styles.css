@@ -290,10 +290,12 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
 .auth input { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 14px 16px; outline: none; text-align: left; }
 .auth input:focus { border-color: var(--accent); }
 .auth .btn-primary { padding: 14px; margin-top: 4px; }
+.auth-switch { margin: 0; color: var(--muted); font-size: 14px; }
+.auth-switch .link { color: var(--accent); font-weight: 700; }
 .auth-error { margin: 0; color: var(--late); font-size: 14px; min-height: 1.4em; }
 
 /* edit sheet */
-.scrim { position: fixed; inset: 0; background: rgba(10, 16, 13, .4); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.scrim { position: fixed; inset: 0; background: rgba(10, 16, 13, .4); display: flex; align-items: flex-end; justify-content: center; z-index: 25; }
 @media (min-width: 600px) { .scrim { align-items: center; } }
 .sheet { width: 100%; max-width: 480px; background: var(--card); border-radius: 22px 22px 0 0; padding: 10px 20px calc(20px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 14px; max-height: 92vh; overflow: auto; }
 @media (min-width: 600px) { .sheet { border-radius: 22px; padding-top: 20px; } .grabber { display: none; } }
@@ -322,3 +324,27 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
 .toast #tDone { opacity: 1; color: var(--accent-soft); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* feedback */
+.sent-note { color: var(--accent); }
+.inbox { max-height: 85vh; }
+.inbox-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; overflow-y: auto; }
+.fb-item { background: var(--field); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; }
+.fb-meta { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.fb-meta b { color: var(--fg); }
+.fb-meta .link { margin-left: auto; font-size: 13px; }
+.fb-msg { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+
+/* phones: the view switcher is a tab bar along the bottom, clear of the home indicator */
+@media (max-width: 899px) {
+  body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); }
+  .views { position: fixed; z-index: 15; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); margin: 0;
+    background: color-mix(in srgb, var(--card) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    border-radius: 16px; padding: 5px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18), 0 0 0 1px var(--line); }
+  .views button { flex-direction: column; gap: 3px; padding: 7px 6px; font-size: 12px; }
+  .views svg { width: 21px; height: 21px; }
+  .views button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: none; }
+  .snack { bottom: calc(env(safe-area-inset-bottom, 0px) + 86px); }
+  .account { margin-top: 8px; }
+}

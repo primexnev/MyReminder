@@ -28,6 +28,7 @@
   <input id="aPass" type="password" placeholder="Password" autocomplete="current-password" required>
   <button type="submit" class="btn-primary" id="aSubmit">Sign in</button>
   <p class="auth-error" id="aError" role="alert"></p>
+  <p class="auth-switch"><span id="authSwitchText">New here?</span> <button type="button" class="link" id="authSwitch">Create an account</button></p>
 </form>
 
 <div class="layout" id="app" hidden>
@@ -134,6 +135,8 @@
 
     <footer class="account">
       <span id="who"></span>
+      <button type="button" class="link" id="fbOpen">Send feedback</button>
+      <button type="button" class="link" id="fbInbox" hidden>Feedback inbox</button>
       <button type="button" class="link" id="testPush" hidden>Send test notification</button>
       <button type="button" class="link" id="signOut">Sign out</button>
     </footer>
@@ -184,6 +187,32 @@
       <button type="submit" class="btn-primary" id="calSave">Connect</button>
     </div>
   </form>
+</div>
+
+<div class="scrim" id="fbScrim" hidden>
+  <form class="sheet" id="fbForm" autocomplete="off">
+    <div class="grabber" aria-hidden="true"></div>
+    <h2 class="sheet-heading">Send feedback</h2>
+    <p class="sheet-help">Found a bug or have an idea? It goes straight to the person who runs MyReminder.</p>
+    <textarea id="fbText" rows="5" maxlength="2000" placeholder="What should be better?" aria-label="Feedback"></textarea>
+    <p class="auth-error" id="fbError" role="alert"></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn-ghost" id="fbCancel">Cancel</button>
+      <button type="submit" class="btn-primary" id="fbSend">Send</button>
+    </div>
+  </form>
+</div>
+
+<div class="scrim" id="inboxScrim" hidden>
+  <div class="sheet inbox">
+    <div class="grabber" aria-hidden="true"></div>
+    <div class="inbox-head">
+      <h2 class="sheet-heading">Feedback inbox</h2>
+      <button type="button" class="btn-ghost small" id="inboxClose">Close</button>
+    </div>
+    <ul class="fb-list" id="fbList"></ul>
+    <p class="classes-empty" id="fbEmpty" hidden>No feedback yet.</p>
+  </div>
 </div>
 
 <div class="toast" id="toast" role="alert" hidden>
