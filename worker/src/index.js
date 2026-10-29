@@ -30,7 +30,7 @@ function cors(req, env) {
   const allowed = (env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim());
   return {
     "Access-Control-Allow-Origin": allowed.includes(origin) ? origin : allowed[0] || "",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
@@ -94,7 +94,8 @@ function cleanTask(d) {
     date: /^\d{4}-\d{2}-\d{2}$/.test(d.date || "") ? d.date : null,
     lastDone: /^\d{4}-\d{2}-\d{2}$/.test(d.lastDone || "") ? d.lastDone : null,
     doing: /^\d{4}-\d{2}-\d{2}$/.test(d.doing || "") ? d.doing : null,
-    createdAt: Number.isFinite(d.createdAt) ? d.createdAt : Date.now()
+    createdAt: Number.isFinite(d.createdAt) ? d.createdAt : Date.now(),
+    by: str(d.by, 32)
   };
 }
 
@@ -173,6 +174,8 @@ async function handle(req, env) {
     }
   }
 
+  if (path.startsWith("/api/groups")) return groups(req, env, h, userId, path);
+
   if (path === "/api/tasks" && req.method === "GET") {
     const { results } = await env.DB.prepare("SELECT id, data FROM tasks WHERE user_id = ?").bind(userId).all();
     return json({ tasks: results.map(r => ({ id: r.id, ...JSON.parse(r.data) })) }, 200, h);
@@ -235,6 +238,124 @@ async function handle(req, env) {
     return json({ connected: false, events: [] }, 200, h);
   }
 
+  return json({ error: "Not found" }, 404, h);
+}
+
+// ---------- groups ----------
+// A group has its own shared board. Members join with an invite code, and every member can
+// change its tasks; the owner can rename it, reset the code, remove people or delete it.
+
+const MAX_GROUPS = 20, MAX_MEMBERS = 50;
+const inviteCode = () => randomToken(9);
+const groupName = v => typeof v === "string" ? v.trim().slice(0, 60) : "";
+
+async function groupSummary(env, userId) {
+  const { results } = await env.DB.prepare(
+    "SELECT g.id, g.name, g.invite_code AS invite, m.role, (SELECT COUNT(*) FROM team_members x WHERE x.team_id = g.id) AS members " +
+    "FROM teams g JOIN team_members m ON m.team_id = g.id WHERE m.user_id = ? ORDER BY g.created_at"
+  ).bind(userId).all();
+  return results;
+}
+
+async function groups(req, env, h, userId, path) {
+  const tooMany = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM team_members WHERE user_id = ?").bind(userId).first("n")) >= MAX_GROUPS;
+
+  if (path === "/api/groups" && req.method === "GET") return json({ groups: await groupSummary(env, userId) }, 200, h);
+
+  if (path === "/api/groups" && req.method === "POST") {
+    const name = groupName((await readJson(req))?.name);
+    if (!name) return json({ error: "Give the group a name." }, 400, h);
+    if (await tooMany()) return json({ error: `You can be in at most ${MAX_GROUPS} groups.` }, 400, h);
+    const id = crypto.randomUUID(), now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO teams (id, name, owner_id, invite_code, created_at) VALUES (?, ?, ?, ?, ?)").bind(id, name, userId, inviteCode(), now),
+      env.DB.prepare("INSERT INTO team_members (team_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").bind(id, userId, now)
+    ]);
+    return json({ id, groups: await groupSummary(env, userId) }, 200, h);
+  }
+
+  if (path === "/api/groups/join" && req.method === "POST") {
+    // Accept the bare code or a whole invite link.
+    const raw = String((await readJson(req))?.code || "").trim();
+    const code = (/[?&]join=([A-Za-z0-9_-]+)/.exec(raw) || [, raw])[1];
+    if (await limited(env, "join:" + userId, 20, 3600e3)) return json({ error: TOO_MANY }, 429, h);
+    const g = /^[A-Za-z0-9_-]{6,32}$/.test(code) && await env.DB.prepare("SELECT id FROM teams WHERE invite_code = ?").bind(code).first();
+    if (!g) return json({ error: "That invite code doesn't work. Ask for a new link." }, 404, h);
+    const already = await env.DB.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?").bind(g.id, userId).first();
+    if (!already) {
+      if (await tooMany()) return json({ error: `You can be in at most ${MAX_GROUPS} groups.` }, 400, h);
+      const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id = ?").bind(g.id).first("n");
+      if (n >= MAX_MEMBERS) return json({ error: "This group is full." }, 400, h);
+      await env.DB.prepare("INSERT INTO team_members (team_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(g.id, userId, Date.now()).run();
+    }
+    return json({ id: g.id, groups: await groupSummary(env, userId) }, 200, h);
+  }
+
+  const m = /^\/api\/groups\/([0-9a-f-]{36})(\/.*)?$/.exec(path);
+  if (!m) return json({ error: "Not found" }, 404, h);
+  const gid = m[1], rest = m[2] || "";
+  const role = await env.DB.prepare("SELECT role FROM team_members WHERE team_id = ? AND user_id = ?").bind(gid, userId).first("role");
+  if (!role) return json({ error: "You're not in this group anymore." }, 404, h);
+  const owner = role === "owner";
+
+  if (rest === "" && req.method === "GET") {
+    const g = await env.DB.prepare("SELECT id, name, invite_code AS invite FROM teams WHERE id = ?").bind(gid).first();
+    const { results: members } = await env.DB.prepare(
+      "SELECT u.username, m.role FROM team_members m JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY m.role = 'owner' DESC, m.joined_at"
+    ).bind(gid).all();
+    return json({ ...g, role, members }, 200, h);
+  }
+  if (rest === "" && req.method === "PATCH") {
+    if (!owner) return json({ error: "Only the group's owner can rename it." }, 403, h);
+    const name = groupName((await readJson(req))?.name);
+    if (!name) return json({ error: "Give the group a name." }, 400, h);
+    await env.DB.prepare("UPDATE teams SET name = ? WHERE id = ?").bind(name, gid).run();
+    return json({ ok: true }, 200, h);
+  }
+  if (rest === "" && req.method === "DELETE") {
+    if (!owner) return json({ error: "Only the group's owner can delete it." }, 403, h);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM team_tasks WHERE team_id = ?").bind(gid),
+      env.DB.prepare("DELETE FROM team_members WHERE team_id = ?").bind(gid),
+      env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(gid)
+    ]);
+    return json({ groups: await groupSummary(env, userId) }, 200, h);
+  }
+  if (rest === "/invite" && req.method === "POST") {
+    if (!owner) return json({ error: "Only the group's owner can reset the link." }, 403, h);
+    const code = inviteCode();
+    await env.DB.prepare("UPDATE teams SET invite_code = ? WHERE id = ?").bind(code, gid).run();
+    return json({ invite: code }, 200, h);
+  }
+  const mm = /^\/members\/([A-Za-z0-9_.-]{3,32})$/.exec(rest);
+  if (mm && req.method === "DELETE") {
+    const target = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(mm[1]).first("id");
+    if (!target) return json({ error: "Not found" }, 404, h);
+    if (target !== userId && !owner) return json({ error: "Only the group's owner can remove people." }, 403, h);
+    if (target === userId && owner) return json({ error: "You own this group. Delete it instead of leaving." }, 400, h);
+    await env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").bind(gid, target).run();
+    return json({ groups: await groupSummary(env, userId) }, 200, h);
+  }
+
+  if (rest === "/tasks" && req.method === "GET") {
+    const { results } = await env.DB.prepare("SELECT id, data FROM team_tasks WHERE team_id = ?").bind(gid).all();
+    return json({ tasks: results.map(r => ({ id: r.id, ...JSON.parse(r.data) })) }, 200, h);
+  }
+  const tm = /^\/tasks\/([A-Za-z0-9_-]{1,64})$/.exec(rest);
+  if (tm && req.method === "PUT") {
+    const data = cleanTask(await readJson(req));
+    if (!data) return json({ error: "A task needs a topic." }, 400, h);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM team_tasks WHERE team_id = ?").bind(gid).first("n");
+    if (n >= 1000) return json({ error: "This group has too many tasks. Delete some first." }, 400, h);
+    await env.DB.prepare(
+      "INSERT INTO team_tasks (team_id, id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (team_id, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at"
+    ).bind(gid, tm[1], JSON.stringify(data), Date.now()).run();
+    return json({ ok: true }, 200, h);
+  }
+  if (tm && req.method === "DELETE") {
+    await env.DB.prepare("DELETE FROM team_tasks WHERE team_id = ? AND id = ?").bind(gid, tm[1]).run();
+    return json({ ok: true }, 200, h);
+  }
   return json({ error: "Not found" }, 404, h);
 }
 
@@ -304,8 +425,13 @@ async function runReminders(env) {
 
   for (const [userId, tz] of users) {
     const now = localNow(tz);
-    const { results: rows } = await env.DB.prepare("SELECT id, data FROM tasks WHERE user_id = ?").bind(userId).all();
-    for (const row of rows) {
+    // Their own tasks plus the tasks of every group they're in (group ids keep the sent keys apart).
+    const { results: own } = await env.DB.prepare("SELECT id, data, NULL AS team FROM tasks WHERE user_id = ?").bind(userId).all();
+    const { results: shared } = await env.DB.prepare(
+      "SELECT t.id, t.data, g.name AS team, g.id AS team_id FROM team_tasks t JOIN team_members m ON m.team_id = t.team_id JOIN teams g ON g.id = t.team_id WHERE m.user_id = ?"
+    ).bind(userId).all();
+    for (const row of own.concat(shared)) {
+      if (row.team_id) row.id = `g:${row.team_id}:${row.id}`;
       const t = JSON.parse(row.data);
       if (!t.time || !dueToday(t, now.date, now.dow)) continue;
       const [hh, mm] = t.time.split(":").map(Number);
@@ -315,7 +441,7 @@ async function runReminders(env) {
       const claim = await env.DB.prepare("INSERT OR IGNORE INTO sent (user_id, task_id, slot, sent_at) VALUES (?, ?, ?, ?)")
         .bind(userId, row.id, `${now.date} ${t.time}`, Date.now()).run();
       if (!claim.meta.changes) continue;
-      await pushToUser(env, userId, { title: t.title, body: t.note || `Due at ${t.time}`, tag: row.id });
+      await pushToUser(env, userId, { title: row.team ? `${t.title} · ${row.team}` : t.title, body: t.note || `Due at ${t.time}`, tag: row.id });
     }
   }
   await env.DB.prepare("DELETE FROM sent WHERE sent_at < ?").bind(Date.now() - 3 * 864e5).run();

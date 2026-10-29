@@ -22,24 +22,37 @@
     });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && session) { signOutLocal(); throw new Error(data.error || "Please sign in again."); }
-    if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+    if (!res.ok) throw Object.assign(new Error(data.error || "Something went wrong. Try again."), { status: res.status });
     return data;
   }
 
   // ---------- storage: server is the source of truth, local copy keeps it fast and offline-readable ----------
+  // The board on screen: "me" for your own tasks, or a group's id for its shared board.
   let tasks = [];
+  let board = ls.get("dl.board", "me");
+  let groups = ls.get("dl.groups", []); // [{id, name, invite, role, members}]
+  const tasksPath = () => board === "me" ? "/api/tasks" : `/api/groups/${board}/tasks`;
+  const cacheKey = () => board === "me" ? "dl.cache" : "dl.cache." + board;
   const showSync = msg => { $("syncMsg").textContent = msg || ""; $("syncMsg").hidden = !msg; };
-  const cache = () => ls.set("dl.cache", tasks);
+  const cache = () => ls.set(cacheKey(), tasks);
   const send = (p, again) => p.then(() => showSync(""), e => { showSync("Couldn't save: " + e.message); again && setTimeout(store.pull, 3000); });
   const store = {
     async pull() {
       if (!session) return;
-      try { tasks = (await api("/api/tasks")).tasks; cache(); showSync(""); render(); }
-      catch (e) { if (session) showSync("Offline. Showing your last synced list."); }
+      const from = board;
+      try {
+        const list = (await api(tasksPath())).tasks;
+        if (from !== board) return; // switched boards while this was loading
+        tasks = list; cache(); showSync(""); render();
+      } catch (e) {
+        if (!session || from !== board) return;
+        if (e.status === 404 && board !== "me") { showSync(e.message); loadGroups(); switchBoard("me"); return; }
+        showSync("Offline. Showing your last synced list.");
+      }
     },
     put(id, data) {
       tasks = tasks.filter(t => t.id !== id).concat({ id, ...data }); cache(); render();
-      send(api("/api/tasks/" + id, { method: "PUT", body: data }), true);
+      send(api(tasksPath() + "/" + id, { method: "PUT", body: data }), true);
     },
     patch(id, p) {
       const t = tasks.find(x => x.id === id); if (!t) return;
@@ -48,7 +61,7 @@
     },
     remove(id) {
       tasks = tasks.filter(t => t.id !== id); cache(); render();
-      send(api("/api/tasks/" + id, { method: "DELETE" }), true);
+      send(api(tasksPath() + "/" + id, { method: "DELETE" }), true);
     }
   };
 
@@ -78,7 +91,10 @@
   $("authSwitch").onclick = () => { setAuthMode($("auth").dataset.mode === "register" ? "login" : "register"); $("aUser").focus(); };
   function showAuth() {
     $("app").hidden = true; $("auth").hidden = false;
-    setAuthMode("login");
+    // Someone opening an invite link is probably new here.
+    const invited = !!ls.get("dl.join", null);
+    setAuthMode(invited ? "register" : "login");
+    if (invited) $("authHint").textContent = "You were invited to a group. Create an account (or sign in) to join it.";
     $("aUser").focus();
   }
   $("auth").addEventListener("submit", async e => {
@@ -94,8 +110,10 @@
     $("aSubmit").disabled = false;
   });
   function signOutLocal() {
-    session = null; tasks = []; cal = null;
-    try { localStorage.removeItem("dl.session"); localStorage.removeItem("dl.cache"); localStorage.removeItem("dl.cal"); } catch {}
+    session = null; tasks = []; cal = null; groups = []; board = "me";
+    try {
+      for (const k of Object.keys(localStorage)) if (/^dl\.(session|cache|cal|groups|board)/.test(k)) localStorage.removeItem(k);
+    } catch {}
     showAuth();
   }
   $("signOut").onclick = async () => {
@@ -106,12 +124,14 @@
 
   async function startApp() {
     $("auth").hidden = true; $("app").hidden = false;
-    $("who").textContent = session.username;
-    $("fbInbox").hidden = !session.admin;
-    api("/api/me").then(me => { session = { ...session, ...me }; ls.set("dl.session", session); $("fbInbox").hidden = !me.admin; }).catch(() => {});
-    tasks = ls.get("dl.cache", []);
+    paintProfile();
+    api("/api/me").then(me => { session = { ...session, ...me }; ls.set("dl.session", session); paintProfile(); }).catch(() => {});
+    if (board !== "me" && !groups.some(g => g.id === board)) board = "me";
+    tasks = ls.get(cacheKey(), []);
     render();
     await migrateLocal();
+    await loadGroups();
+    await joinFromLink();
     await store.pull();
     setView(view);
     loadCal(true);
@@ -171,7 +191,8 @@
     text.type = "button";
     if (t.note) text.append(el("span", "note", t.note));
     const sub = other || t.repeat !== "once" ? repeatText(t) : (t.date < today ? "Overdue" : "");
-    if (sub) text.append(el("span", "rep", sub));
+    const by = board !== "me" && t.by ? (sub ? " · " : "") + "by " + t.by : "";
+    if (sub || by) text.append(el("span", "rep", sub + by));
     text.onclick = () => openEdit(t);
 
     const side = el("div", "acts");
@@ -274,7 +295,7 @@
     store.put(newId(), {
       title, note: $("addNote").value.trim(), time: $("addTime").value || null,
       repeat: daily ? "daily" : "once", days: [], date: daily ? null : ymd(new Date()),
-      lastDone: null, doing: null, createdAt: Date.now()
+      lastDone: null, doing: null, createdAt: Date.now(), by: board === "me" ? null : session.username
     });
     $("addTitle").value = ""; $("addNote").value = ""; $("addTime").value = "";
     growNote();
@@ -601,6 +622,172 @@
     try { setCal(await api("/api/calendar", { method: "DELETE" })); closeCal(); }
     catch (err) { $("calError").textContent = err.message; }
   };
+
+  // ---------- profile menu, boards and groups ----------
+  const initial = name => (name || "?").trim().charAt(0) || "?";
+  function paintProfile() {
+    if (!session) return;
+    $("profileBtn").textContent = initial(session.username);
+    $("meAvatar").textContent = initial(session.username);
+    $("who").textContent = session.username;
+    $("meRole").textContent = session.admin ? "Owner of MyReminder" : "Member";
+    $("fbInbox").hidden = !session.admin;
+    const g = groups.find(x => x.id === board);
+    $("boardName").textContent = g ? g.name : "My tasks";
+    $("boardChip").classList.toggle("group", !!g);
+    $("boardList").replaceChildren(...[{ id: "me", name: "My tasks" }, ...groups].map(b => {
+      const li = el("li"), pick = el("button", "pick");
+      pick.type = "button";
+      pick.setAttribute("aria-current", b.id === board);
+      pick.append(el("span", "ico", b.id === "me" ? "✓" : initial(b.name)), el("span", "", b.name));
+      if (b.id !== "me") pick.append(el("small", "", `${b.members} ${b.members === 1 ? "person" : "people"}`));
+      pick.onclick = () => { switchBoard(b.id); closeMenu(); };
+      li.append(pick);
+      if (b.id !== "me") {
+        const gear = el("button", "icon-btn");
+        gear.type = "button"; gear.setAttribute("aria-label", "Manage " + b.name); gear.title = "Members and invite link";
+        gear.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="8" r="2.6"/><path d="M2.5 16c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4M13.5 5.2a2.6 2.6 0 0 1 0 5M14.5 12.2c1.6.4 2.7 1.7 3 3.8"/></svg>';
+        gear.onclick = () => { closeMenu(); openGroup("manage", b.id); };
+        li.append(gear);
+      }
+      return li;
+    }));
+  }
+  async function loadGroups() {
+    try { groups = (await api("/api/groups")).groups; ls.set("dl.groups", groups); } catch {}
+    if (board !== "me" && !groups.some(g => g.id === board)) switchBoard("me");
+    paintProfile();
+  }
+  function switchBoard(id) {
+    if (id === board) return;
+    board = id; ls.set("dl.board", id);
+    tasks = ls.get(cacheKey(), []);
+    paintProfile(); render(); store.pull();
+  }
+  const openMenu = () => { paintProfile(); $("menuScrim").hidden = false; };
+  const closeMenu = () => { $("menuScrim").hidden = true; };
+  $("profileBtn").onclick = openMenu;
+  $("boardChip").onclick = openMenu;
+  $("menuScrim").addEventListener("click", e => { if (e.target === $("menuScrim")) closeMenu(); });
+  $("menuCal").onclick = () => { closeMenu(); openCal(); };
+  for (const id of ["fbOpen", "fbInbox", "testPush"]) $(id).addEventListener("click", closeMenu);
+
+  // Invite links look like …/MyReminder/?join=CODE; opening one joins after sign-in.
+  const pendingJoin = new URLSearchParams(location.search).get("join");
+  if (pendingJoin) { ls.set("dl.join", pendingJoin); history.replaceState(null, "", location.pathname); }
+  async function joinFromLink() {
+    const code = ls.get("dl.join", null);
+    if (!code) return;
+    try { localStorage.removeItem("dl.join"); } catch {}
+    try {
+      const r = await api("/api/groups/join", { method: "POST", body: { code } });
+      groups = r.groups; ls.set("dl.groups", groups);
+      board = "me"; switchBoard(r.id);
+    } catch (e) { showSync(e.message); }
+  }
+  const inviteLink = code => location.origin + location.pathname + "?join=" + code;
+
+  // One sheet for creating, joining and managing a group.
+  let gMode = null, gId = null, gConfirm = false;
+  async function openGroup(mode, id) {
+    gMode = mode; gId = id || null; gConfirm = false;
+    $("gError").textContent = "";
+    $("gManage").hidden = mode !== "manage";
+    $("gLeave").hidden = mode !== "manage";
+    $("gInput").value = "";
+    $("gInput").readOnly = false;
+    $("gSubmit").hidden = false;
+    if (mode === "new") {
+      $("gHeading").textContent = "New group";
+      $("gHelp").textContent = "A group has its own board. Everyone in it can add, start and finish its tasks.";
+      $("gInput").placeholder = "Group name, e.g. WEB_ISA team";
+      $("gSubmit").textContent = "Create";
+    } else if (mode === "join") {
+      $("gHeading").textContent = "Join a group";
+      $("gHelp").textContent = "Paste the invite link or code someone sent you.";
+      $("gInput").placeholder = "Invite link or code";
+      $("gSubmit").textContent = "Join";
+    } else {
+      const g = groups.find(x => x.id === id);
+      $("gHeading").textContent = g ? g.name : "Group";
+      $("gHelp").textContent = "Send the invite link to anyone you want in this group.";
+      $("gInput").value = g ? g.name : "";
+      $("gMembers").replaceChildren(el("li", "", "Loading…"));
+      try {
+        const d = await api(`/api/groups/${id}`);
+        const owner = d.role === "owner";
+        $("gHeading").textContent = d.name;
+        $("gInput").value = d.name;
+        $("gInput").readOnly = !owner;
+        $("gSubmit").hidden = !owner;
+        $("gSubmit").textContent = "Save name";
+        $("gLink").value = inviteLink(d.invite);
+        $("gReset").hidden = !owner;
+        $("gLeave").textContent = owner ? "Delete group" : "Leave group";
+        $("gMembers").replaceChildren(...d.members.map(m => {
+          const li = el("li");
+          li.append(el("span", "avatar", initial(m.username)), el("span", "", m.username));
+          if (m.role === "owner") li.append(el("small", "", "Owner"));
+          if (owner && m.role !== "owner") {
+            const rm = el("button", "link danger", "Remove");
+            rm.type = "button";
+            rm.onclick = async () => {
+              if (rm.dataset.armed !== "1") { rm.dataset.armed = "1"; rm.textContent = "Tap again"; return; }
+              try { groups = (await api(`/api/groups/${id}/members/${encodeURIComponent(m.username)}`, { method: "DELETE" })).groups; ls.set("dl.groups", groups); li.remove(); paintProfile(); }
+              catch (e) { $("gError").textContent = e.message; }
+            };
+            li.append(rm);
+          }
+          return li;
+        }));
+      } catch (e) { $("gError").textContent = e.message; }
+    }
+    $("groupScrim").hidden = false;
+    if (mode !== "manage") $("gInput").focus();
+  }
+  const closeGroup = () => { $("groupScrim").hidden = true; };
+  $("groupNew").onclick = () => { closeMenu(); openGroup("new"); };
+  $("groupJoin").onclick = () => { closeMenu(); openGroup("join"); };
+  $("gCancel").onclick = closeGroup;
+  $("groupScrim").addEventListener("click", e => { if (e.target === $("groupScrim")) closeGroup(); });
+  $("gCopy").onclick = async () => {
+    try { await navigator.clipboard.writeText($("gLink").value); } catch { $("gLink").select(); document.execCommand?.("copy"); }
+    $("gCopy").textContent = "Copied"; setTimeout(() => { $("gCopy").textContent = "Copy"; }, 1500);
+  };
+  $("gReset").onclick = async () => {
+    try { $("gLink").value = inviteLink((await api(`/api/groups/${gId}/invite`, { method: "POST" })).invite); loadGroups(); }
+    catch (e) { $("gError").textContent = e.message; }
+  };
+  $("gLeave").onclick = async () => {
+    const g = groups.find(x => x.id === gId), owner = g?.role === "owner";
+    if (!gConfirm) { gConfirm = true; $("gLeave").textContent = owner ? "Tap again: deletes all its tasks" : "Tap again to leave"; return; }
+    try {
+      const r = owner ? await api(`/api/groups/${gId}`, { method: "DELETE" }) : await api(`/api/groups/${gId}/members/${encodeURIComponent(session.username)}`, { method: "DELETE" });
+      groups = r.groups; ls.set("dl.groups", groups);
+      try { localStorage.removeItem("dl.cache." + gId); } catch {}
+      if (board === gId) switchBoard("me");
+      paintProfile(); closeGroup();
+    } catch (e) { $("gError").textContent = e.message; }
+  };
+  $("groupForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const v = $("gInput").value.trim();
+    if (!v) { $("gInput").focus(); return; }
+    $("gSubmit").disabled = true; $("gError").textContent = "";
+    try {
+      if (gMode === "manage") {
+        await api(`/api/groups/${gId}`, { method: "PATCH", body: { name: v } });
+        await loadGroups(); $("gHeading").textContent = v;
+      } else {
+        const r = gMode === "new" ? await api("/api/groups", { method: "POST", body: { name: v } }) : await api("/api/groups/join", { method: "POST", body: { code: v } });
+        groups = r.groups; ls.set("dl.groups", groups);
+        switchBoard(r.id);
+        if (gMode === "new") openGroup("manage", r.id); else closeGroup();
+      }
+    } catch (err) { $("gError").textContent = err.message; }
+    $("gSubmit").disabled = false;
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); closeGroup(); } });
 
   // ---------- feedback ----------
   $("fbOpen").onclick = () => { $("fbText").value = ""; $("fbError").textContent = ""; $("fbError").classList.remove("sent-note"); $("fbScrim").hidden = false; $("fbText").focus(); };

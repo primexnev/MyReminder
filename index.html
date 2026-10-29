@@ -36,6 +36,7 @@
     <div class="when">
       <p class="day-name" id="dayName"></p>
       <h1 id="date"></h1>
+      <button type="button" class="board-chip" id="boardChip" aria-label="Switch board"><span id="boardName">My tasks</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
     </div>
     <div class="views" role="tablist" aria-label="View">
       <button type="button" role="tab" data-view="board"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="4" height="12" rx="1.2"/><rect x="8.5" y="4" width="4" height="8" rx="1.2"/><rect x="14" y="4" width="3" height="10" rx="1.2"/></svg>Tasks</button>
@@ -46,6 +47,7 @@
       <p class="count" id="count"></p>
       <div class="bar" aria-hidden="true"><span id="bar"></span></div>
     </div>
+    <button type="button" class="avatar" id="profileBtn" aria-label="Profile and boards" aria-haspopup="dialog"></button>
   </header>
 
   <div class="side">
@@ -133,13 +135,6 @@
       <ul id="other" class="cards"></ul>
     </details>
 
-    <footer class="account">
-      <span id="who"></span>
-      <button type="button" class="link" id="fbOpen">Send feedback</button>
-      <button type="button" class="link" id="fbInbox" hidden>Feedback inbox</button>
-      <button type="button" class="link" id="testPush" hidden>Send test notification</button>
-      <button type="button" class="link" id="signOut">Sign out</button>
-    </footer>
   </div>
 </div>
 
@@ -185,6 +180,55 @@
       <button type="button" class="link danger" id="calRemove" hidden>Disconnect</button>
       <button type="button" class="btn-ghost" id="calCancel">Cancel</button>
       <button type="submit" class="btn-primary" id="calSave">Connect</button>
+    </div>
+  </form>
+</div>
+
+<div class="scrim menu-scrim" id="menuScrim" hidden>
+  <div class="sheet menu" role="dialog" aria-label="Profile">
+    <div class="grabber" aria-hidden="true"></div>
+    <div class="me">
+      <span class="avatar big" id="meAvatar" aria-hidden="true"></span>
+      <div><b id="who"></b><span id="meRole"></span></div>
+    </div>
+    <p class="menu-label">Boards</p>
+    <ul class="boards" id="boardList"></ul>
+    <div class="menu-row">
+      <button type="button" class="btn-ghost small" id="groupNew">New group</button>
+      <button type="button" class="btn-ghost small" id="groupJoin">Join with a code</button>
+    </div>
+    <p class="menu-label">Account</p>
+    <div class="menu-links">
+      <button type="button" id="menuCal">School calendar</button>
+      <button type="button" id="testPush" hidden>Send test notification</button>
+      <button type="button" id="fbOpen">Send feedback</button>
+      <button type="button" id="fbInbox" hidden>Feedback inbox</button>
+      <button type="button" class="danger" id="signOut">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="groupScrim" hidden>
+  <form class="sheet" id="groupForm" autocomplete="off">
+    <div class="grabber" aria-hidden="true"></div>
+    <h2 class="sheet-heading" id="gHeading"></h2>
+    <p class="sheet-help" id="gHelp"></p>
+    <input id="gInput" class="sheet-input" type="text" maxlength="200" spellcheck="false" autocapitalize="none">
+    <div id="gManage" hidden>
+      <p class="menu-label">Invite link</p>
+      <div class="invite">
+        <input id="gLink" class="sheet-input" type="text" readonly aria-label="Invite link">
+        <button type="button" class="btn-primary small" id="gCopy">Copy</button>
+      </div>
+      <button type="button" class="link" id="gReset" hidden>Make a new link (the old one stops working)</button>
+      <p class="menu-label">Members</p>
+      <ul class="members" id="gMembers"></ul>
+    </div>
+    <p class="auth-error" id="gError" role="alert"></p>
+    <div class="sheet-actions">
+      <button type="button" class="link danger" id="gLeave" hidden></button>
+      <button type="button" class="btn-ghost" id="gCancel">Close</button>
+      <button type="submit" class="btn-primary" id="gSubmit"></button>
     </div>
   </form>
 </div>

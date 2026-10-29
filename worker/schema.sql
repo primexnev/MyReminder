@@ -60,3 +60,29 @@ CREATE TABLE IF NOT EXISTS attempts (
   count INTEGER NOT NULL,
   window_start INTEGER NOT NULL
 );
+
+-- Groups ("teams" in SQL): a shared board that members join with an invite code.
+CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  invite_code TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (team_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS team_members_user ON team_members (user_id);
+
+CREATE TABLE IF NOT EXISTS team_tasks (
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (team_id, id)
+);
