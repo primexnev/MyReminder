@@ -9,5 +9,4 @@ ALLOWED_ORIGINS = "https://primexnev.github.io,http://localhost:8765"
 [[d1_databases]]
 binding = "DB"
 database_name = "myreminder"
-# Filled in after `npx wrangler d1 create myreminder`.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "df9f1116-5b5a-4961-b25e-0f2a393c9d23"
