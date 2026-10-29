@@ -400,6 +400,9 @@
   function setView(v) {
     view = v; weekOffset = 0; scrollToNow = true;
     $("app").dataset.view = v;
+    // Split puts the timeline in the side panel; the other views keep it next to the board.
+    const home = $("app").querySelector(v === "split" ? ".side" : ".stage");
+    if ($("planner").parentNode !== home) home.append($("planner"));
     document.querySelectorAll(".views button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
     ls.set("dl.view", v);
     renderPlanner();
@@ -450,7 +453,7 @@
     const now = new Date(), today = ymd(now), nowMin = now.getHours() * 60 + now.getMinutes();
     const days = view === "split" ? [new Date(now.getFullYear(), now.getMonth(), now.getDate())]
       : Array.from({ length: 7 }, (_, i) => addDays(mondayOf(now), weekOffset * 7 + i));
-    if (view === "split") $("plannerTitle").textContent = "Today";
+    if (view === "split") $("plannerTitle").textContent = "Today · " + now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
     else {
       const a = days[0], b = days[6], o = { day: "numeric", month: "short" };
       $("plannerTitle").textContent = `${a.toLocaleDateString(undefined, o)} – ${b.toLocaleDateString(undefined, { ...o, year: "numeric" })}`;

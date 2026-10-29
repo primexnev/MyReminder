@@ -54,11 +54,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
     column-gap: 32px; row-gap: 16px;
   }
   .top { grid-area: top; }
-  /* the classes card takes whatever height the composer leaves */
   .side { grid-area: side; min-height: 0; display: flex; flex-direction: column; }
-  .side > .classes { flex: 1 1 auto; min-height: 140px; display: flex; flex-direction: column; }
-  .side > .classes.off { flex: none; min-height: 0; }
-  .classes .class-list { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
+  .classes .class-list { max-height: 45vh; overflow-y: auto; }
   .stage { grid-area: stage; min-height: 0; display: flex; gap: 20px; }
   .board { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .extra { grid-area: extra; }
@@ -71,7 +68,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .layout[data-view="calendar"] .board { display: none; }
 .layout[data-view="calendar"] .planner { display: flex; }
 @media (min-width: 900px) {
-  .layout[data-view="split"] .planner { display: flex; width: 380px; flex: none; }
+  /* Split: today's timeline fills the side panel under the composer; the board keeps its width */
+  .layout[data-view="split"] .planner { display: flex; flex: 1 1 auto; min-height: 220px; }
+  .layout[data-view="split"] .tg-head { display: none; }
   .layout[data-view="split"] .side > .classes { display: none; }
   .layout[data-view="calendar"] .planner { flex: 1; min-width: 0; }
 }
