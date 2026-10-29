@@ -30,55 +30,76 @@
   <p class="auth-error" id="aError" role="alert"></p>
 </form>
 
-<div class="wrap" id="app" hidden>
-  <header class="top">
-    <div class="top-row">
-      <div>
-        <p class="day-name" id="dayName"></p>
-        <h1 id="date"></h1>
+<div class="layout" id="app" hidden>
+  <div class="side">
+    <header class="top">
+      <div class="top-row">
+        <div>
+          <p class="day-name" id="dayName"></p>
+          <h1 id="date"></h1>
+        </div>
+        <p class="count" id="count"></p>
       </div>
-      <p class="count" id="count"></p>
+      <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+    </header>
+
+    <button class="banner" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
+    <p class="banner warn" id="syncMsg" hidden></p>
+
+    <form class="composer" id="addForm" autocomplete="off">
+      <input id="addTitle" type="text" placeholder="What do you need to do?" maxlength="140" aria-label="Topic">
+      <textarea id="addNote" rows="1" placeholder="Add a description" maxlength="2000" aria-label="Description"></textarea>
+      <div class="composer-row">
+        <label class="pill time-pill">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 6v4.2l2.6 1.6"/></svg>
+          <input id="addTime" type="time" aria-label="Reminder time">
+        </label>
+        <button type="button" id="addRepeat" class="pill toggle" aria-pressed="false">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 9a6 6 0 0 1 10.5-3.9M16 11a6 6 0 0 1-10.5 3.9"/><path d="M14.8 2.6v2.8H12M5.2 17.4v-2.8H8"/></svg>
+          Daily
+        </button>
+        <button type="submit" class="btn-primary add-btn">Add</button>
+      </div>
+    </form>
+  </div>
+
+  <main class="board" id="board" data-active="todo">
+    <div class="tabs" role="tablist" aria-label="Task status">
+      <button type="button" role="tab" data-col="todo">To do <span id="tabn-todo"></span></button>
+      <button type="button" role="tab" data-col="doing">In progress <span id="tabn-doing"></span></button>
+      <button type="button" role="tab" data-col="done">Done <span id="tabn-done"></span></button>
     </div>
-    <div class="bar" aria-hidden="true"><span id="bar"></span></div>
-  </header>
-
-  <button class="banner" id="notifyBtn" type="button" hidden>Turn on notifications to get reminders</button>
-  <p class="banner warn" id="syncMsg" hidden></p>
-
-  <form class="composer" id="addForm" autocomplete="off">
-    <input id="addTitle" type="text" placeholder="What do you need to do?" maxlength="140" aria-label="Topic">
-    <textarea id="addNote" rows="1" placeholder="Add a description" maxlength="2000" aria-label="Description"></textarea>
-    <div class="composer-row">
-      <label class="pill time-pill">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 6v4.2l2.6 1.6"/></svg>
-        <input id="addTime" type="time" aria-label="Reminder time">
-      </label>
-      <button type="button" id="addRepeat" class="pill toggle" aria-pressed="false">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 9a6 6 0 0 1 10.5-3.9M16 11a6 6 0 0 1-10.5 3.9"/><path d="M14.8 2.6v2.8H12M5.2 17.4v-2.8H8"/></svg>
-        Daily
-      </button>
-      <button type="submit" class="btn-primary add-btn">Add</button>
+    <div class="columns">
+      <section class="column" data-col="todo" aria-label="To do">
+        <h2><span class="dot"></span>To do<span class="n" id="n-todo"></span></h2>
+        <ul id="col-todo" class="cards"></ul>
+        <p class="col-empty" id="empty-todo">Nothing waiting. Add a task to get started.</p>
+      </section>
+      <section class="column" data-col="doing" aria-label="In progress">
+        <h2><span class="dot"></span>In progress<span class="n" id="n-doing"></span></h2>
+        <ul id="col-doing" class="cards"></ul>
+        <p class="col-empty" id="empty-doing">Press Start on a task, or drag it here.</p>
+      </section>
+      <section class="column" data-col="done" aria-label="Done">
+        <h2><span class="dot"></span>Done<span class="n" id="n-done"></span></h2>
+        <ul id="col-done" class="cards"></ul>
+        <p class="col-empty" id="empty-done">Finished tasks land here.</p>
+      </section>
     </div>
-  </form>
+  </main>
 
-  <section>
-    <ul id="list" class="cards"></ul>
-    <div class="empty" id="empty" hidden>
-      <p class="empty-title">All clear for today</p>
-      <p>Add a task above. Turn on Daily for things you do every day.</p>
-    </div>
-  </section>
+  <div class="extra">
+    <details class="other" id="otherWrap" hidden>
+      <summary>Other days <span id="otherCount"></span></summary>
+      <ul id="other" class="cards"></ul>
+    </details>
 
-  <details class="other" id="otherWrap" hidden>
-    <summary>Other days <span id="otherCount"></span></summary>
-    <ul id="other" class="cards"></ul>
-  </details>
-
-  <footer class="account">
-    <span id="who"></span>
-    <button type="button" class="link" id="testPush" hidden>Send test notification</button>
-    <button type="button" class="link" id="signOut">Sign out</button>
-  </footer>
+    <footer class="account">
+      <span id="who"></span>
+      <button type="button" class="link" id="testPush" hidden>Send test notification</button>
+      <button type="button" class="link" id="signOut">Sign out</button>
+    </footer>
+  </div>
 </div>
 
 <div class="scrim" id="scrim" hidden>

@@ -76,6 +76,7 @@ function cleanTask(d) {
     days: Array.isArray(d.days) ? d.days.filter(n => Number.isInteger(n) && n >= 0 && n <= 6) : [],
     date: /^\d{4}-\d{2}-\d{2}$/.test(d.date || "") ? d.date : null,
     lastDone: /^\d{4}-\d{2}-\d{2}$/.test(d.lastDone || "") ? d.lastDone : null,
+    doing: /^\d{4}-\d{2}-\d{2}$/.test(d.doing || "") ? d.doing : null,
     createdAt: Number.isFinite(d.createdAt) ? d.createdAt : Date.now()
   };
 }

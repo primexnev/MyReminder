@@ -126,26 +126,59 @@
   const byTime = (a, b) => (a.time || "99").localeCompare(b.time || "99") || a.title.localeCompare(b.title);
 
   // ---------- render ----------
-  function row(t, today, nowHM, showRepeat) {
-    const done = isDone(t, today);
-    const late = !done && ((t.repeat === "once" && t.date < today) || (t.time && t.time <= nowHM));
-    const li = document.createElement("li");
-    li.className = "item" + (done ? " done" : "") + (late && !showRepeat ? " late" : "");
-    const box = document.createElement("button");
-    box.className = "box"; box.type = "button";
-    box.setAttribute("aria-label", (done ? "Undo " : "Complete ") + t.title);
-    box.onclick = () => store.patch(t.id, { lastDone: done ? null : today });
-    if (showRepeat) box.style.visibility = "hidden";
-    const text = document.createElement("button");
-    text.className = "text"; text.type = "button";
-    text.textContent = t.title;
-    if (t.note) { const n = document.createElement("span"); n.className = "note"; n.textContent = t.note; text.append(n); }
-    const sub = showRepeat ? repeatText(t) : (t.repeat !== "once" ? repeatText(t) : (t.date < today ? "Overdue" : ""));
-    if (sub) { const s = document.createElement("span"); s.className = "rep"; s.textContent = sub; text.append(s); }
+  // A task's column today: done, in progress (doing = the day it was started), or to do.
+  const COLS = ["todo", "doing", "done"];
+  const inProgress = (t, today) => t.repeat === "once" ? !!t.doing : t.doing === today;
+  const statusOf = (t, today) => isDone(t, today) ? "done" : inProgress(t, today) ? "doing" : "todo";
+  function setStatus(t, col) {
+    const today = ymd(new Date());
+    if (col === "todo") store.patch(t.id, { lastDone: null, doing: null });
+    if (col === "doing") store.patch(t.id, { lastDone: null, doing: today });
+    if (col === "done") store.patch(t.id, { lastDone: today, doing: null });
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }
+
+  function card(t, today, nowHM, other) {
+    const col = statusOf(t, today);
+    const late = !other && col !== "done" && ((t.repeat === "once" && t.date < today) || (t.time && t.time <= nowHM));
+    const li = el("li", "item " + col + (late ? " late" : ""));
+    li.dataset.id = t.id;
+
+    const box = el("button", "box");
+    box.type = "button";
+    box.setAttribute("aria-label", (col === "done" ? "Move back to To do: " : "Mark done: ") + t.title);
+    box.onclick = () => setStatus(t, col === "done" ? "todo" : "done");
+    if (other) box.style.visibility = "hidden";
+
+    const text = el("button", "text", t.title);
+    text.type = "button";
+    if (t.note) text.append(el("span", "note", t.note));
+    const sub = other || t.repeat !== "once" ? repeatText(t) : (t.date < today ? "Overdue" : "");
+    if (sub) text.append(el("span", "rep", sub));
     text.onclick = () => openEdit(t);
-    const meta = document.createElement("span");
-    meta.className = "meta"; meta.textContent = t.time || "";
-    li.append(box, text, meta);
+
+    const side = el("div", "acts");
+    if (t.time) side.append(el("span", "meta", t.time));
+    if (!other && col !== "done") {
+      const move = el("button", "move", col === "todo" ? "Start" : "Pause");
+      move.type = "button";
+      move.setAttribute("aria-label", (col === "todo" ? "Start: " : "Move back to To do: ") + t.title);
+      move.onclick = () => setStatus(t, col === "todo" ? "doing" : "todo");
+      side.append(move);
+    }
+    li.append(box, text, side);
+
+    if (!other) {
+      li.draggable = true;
+      li.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); });
+      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+    }
     return li;
   }
 
@@ -154,17 +187,43 @@
     $("dayName").textContent = now.toLocaleDateString(undefined, { weekday: "long" });
     $("date").textContent = now.toLocaleDateString(undefined, { day: "numeric", month: "long" });
     const todays = tasks.filter(t => scheduledOn(t, today, dow));
-    const open = todays.filter(t => !isDone(t, today)).sort(byTime);
-    const done = todays.filter(t => isDone(t, today)).sort(byTime);
-    $("count").textContent = todays.length ? `${done.length} of ${todays.length} done` : "";
-    $("bar").style.width = todays.length ? `${(done.length / todays.length) * 100}%` : "0";
-    $("list").replaceChildren(...open.concat(done).map(t => row(t, today, nowHM, false)));
-    $("empty").hidden = todays.length > 0;
+    const groups = { todo: [], doing: [], done: [] };
+    todays.forEach(t => groups[statusOf(t, today)].push(t));
+    $("count").textContent = todays.length ? `${groups.done.length} of ${todays.length} done` : "";
+    $("bar").style.width = todays.length ? `${(groups.done.length / todays.length) * 100}%` : "0";
+    for (const c of COLS) {
+      const list = groups[c].sort(byTime);
+      $("n-" + c).textContent = list.length;
+      $("tabn-" + c).textContent = list.length;
+      $("col-" + c).replaceChildren(...list.map(t => card(t, today, nowHM, false)));
+      $("empty-" + c).hidden = list.length > 0;
+    }
     const others = tasks.filter(t => !scheduledOn(t, today, dow) && !(t.repeat === "once" && t.lastDone && t.date < today)).sort(byTime);
     $("otherWrap").hidden = !others.length;
     $("otherCount").textContent = `(${others.length})`;
-    $("other").replaceChildren(...others.map(t => row(t, today, nowHM, true)));
+    $("other").replaceChildren(...others.map(t => card(t, today, nowHM, true)));
   }
+
+  // Drag cards between columns (desktop); on phones the Start / Pause / check buttons do the same.
+  document.querySelectorAll(".column").forEach(colEl => {
+    const col = colEl.dataset.col;
+    colEl.addEventListener("dragover", e => { e.preventDefault(); colEl.classList.add("drop"); });
+    colEl.addEventListener("dragleave", e => { if (!colEl.contains(e.relatedTarget)) colEl.classList.remove("drop"); });
+    colEl.addEventListener("drop", e => {
+      e.preventDefault(); colEl.classList.remove("drop");
+      const t = tasks.find(x => x.id === e.dataTransfer.getData("text/plain"));
+      if (t && statusOf(t, ymd(new Date())) !== col) setStatus(t, col);
+    });
+  });
+
+  // Phone: one column at a time, picked with the tabs.
+  function showTab(col) {
+    $("board").dataset.active = col;
+    document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.col === col));
+    ls.set("dl.tab", col);
+  }
+  document.querySelectorAll(".tabs button").forEach(b => { b.onclick = () => showTab(b.dataset.col); });
+  showTab(COLS.includes(ls.get("dl.tab", "todo")) ? ls.get("dl.tab", "todo") : "todo");
 
   // ---------- quick add ----------
   $("addRepeat").onclick = e => { const b = e.currentTarget; b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); };
@@ -176,7 +235,7 @@
     store.put(newId(), {
       title, note: $("addNote").value.trim(), time: $("addTime").value || null,
       repeat: daily ? "daily" : "once", days: [], date: daily ? null : ymd(new Date()),
-      lastDone: null, createdAt: Date.now()
+      lastDone: null, doing: null, createdAt: Date.now()
     });
     $("addTitle").value = ""; $("addNote").value = ""; $("addTime").value = "";
     growNote();
@@ -235,7 +294,8 @@
       ...prev, title, note: $("eNote").value.trim(), repeat, time: $("eTime").value || null,
       days: repeat === "days" ? eDays.slice().sort() : [],
       date: repeat === "once" ? ($("eDate").value || ymd(new Date())) : null,
-      lastDone: repeat === prev.repeat ? prev.lastDone : null
+      lastDone: repeat === prev.repeat ? prev.lastDone : null,
+      doing: repeat === prev.repeat ? (prev.doing ?? null) : null
     });
     closeEdit();
   });
@@ -346,7 +406,7 @@
     }
   }
   function hideToast() { $("toast").hidden = true; toastTask = null; setTimeout(checkReminders, 400); }
-  $("tDone").onclick = () => { const t = toastTask; hideToast(); store.patch(t.id, { lastDone: ymd(new Date()) }); };
+  $("tDone").onclick = () => { const t = toastTask; hideToast(); setStatus(t, "done"); };
   $("tSnooze").onclick = () => { const s = remState(); s.snooze[toastTask.id] = Date.now() + 10 * 60 * 1000; ls.set("dl.rem", s); hideToast(); };
   $("tClose").onclick = hideToast;
 
