@@ -491,6 +491,7 @@
     const perDay = days.map(d => ({ d, date: ymd(d), items: itemsOn(ymd(d), today) }));
     renderGrid(perDay, today, nowMin);
     renderAgenda(perDay, today, nowMin);
+    renderTray(today);
   }
 
   function renderGrid(perDay, today, nowMin) {
@@ -500,6 +501,7 @@
     const endH = Math.min(24, Math.max(20, ...timed.map(i => Math.ceil(i.e / 60))));
     grid.style.setProperty("--days", perDay.length);
     grid.style.setProperty("--hours", endH - startH);
+    grid.dataset.startH = startH;
     const at = min => `calc(${(min - startH * 60) / 60} * var(--hh))`;
 
     const head = el("div", "tg-row tg-head");
@@ -526,6 +528,7 @@
     row.append(hours);
     for (const p of perDay) {
       const col = el("div", "tg-col" + (p.date === today ? " today" : ""));
+      col.dataset.date = p.date;
       // Side-by-side lanes for anything that overlaps.
       const list = p.items.filter(i => !i.allDay);
       let group = [], groupEnd = -1;
@@ -546,7 +549,16 @@
         ev.style.left = `calc(${(it.lane / it.n) * 100}% + 2px)`;
         ev.style.width = `calc(${100 / it.n}% - 4px)`;
         ev.append(el("b", "", it.title), el("small", "", it.start + (it.end ? "–" + it.end : "") + (it.sub ? " · " + it.sub : "")));
-        if (it.task) { ev.type = "button"; ev.onclick = () => openEdit(it.task); }
+        if (it.task) {
+          ev.type = "button"; ev.onclick = () => openEdit(it.task);
+          ev.draggable = true;
+          ev.addEventListener("dragstart", e => {
+            // Keep the block where it was grabbed, so it doesn't jump under the pointer.
+            dragGrabMin = Math.round((e.clientY - ev.getBoundingClientRect().top) / hourPx() * 60);
+            startTaskDrag(e, it.task.id, ev);
+          });
+          ev.addEventListener("dragend", () => endTaskDrag(ev));
+        }
         ev.title = it.title;
         col.append(ev);
       }
@@ -591,6 +603,79 @@
       return wrap;
     }));
   }
+
+  // ---------- drag tasks onto the calendar ----------
+  // Board cards, tray items and task blocks all carry the task id; dropping one on a day column
+  // gives it that time (snapped to 15 minutes), and a one-off task moves to that day too.
+  // Dropping a block back on the tray takes its time away.
+  let dragGrabMin = 0;
+  const hourPx = () => parseFloat(getComputedStyle($("tgrid")).getPropertyValue("--hh")) || 52;
+  function startTaskDrag(e, id, node) {
+    e.dataTransfer.setData("text/plain", id); e.dataTransfer.effectAllowed = "move";
+    node.classList.add("dragging"); document.body.classList.add("dragging-task");
+  }
+  function endTaskDrag(node) {
+    node.classList.remove("dragging"); document.body.classList.remove("dragging-task");
+    $("tgrid").querySelector(".drop-ghost")?.remove();
+  }
+  function dropMinutes(col, e) {
+    const top = col.getBoundingClientRect().top, startH = Number($("tgrid").dataset.startH) || 0;
+    const m = startH * 60 + (e.clientY - top) / hourPx() * 60 - dragGrabMin;
+    return Math.min(23 * 60 + 45, Math.max(0, Math.round(m / 15) * 15));
+  }
+  const hhmm = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+  $("tgrid").addEventListener("dragover", e => {
+    const col = e.target.closest?.(".tg-col");
+    if (!col || !document.body.classList.contains("dragging-task")) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    const m = dropMinutes(col, e), startH = Number($("tgrid").dataset.startH) || 0;
+    let ghost = $("tgrid").querySelector(".drop-ghost");
+    if (!ghost) ghost = el("div", "drop-ghost");
+    if (ghost.parentNode !== col) col.append(ghost);
+    ghost.style.top = `calc(${(m - startH * 60) / 60} * var(--hh))`;
+    ghost.textContent = hhmm(m);
+  });
+  $("tgrid").addEventListener("dragleave", e => { if (!$("tgrid").contains(e.relatedTarget)) $("tgrid").querySelector(".drop-ghost")?.remove(); });
+  $("tgrid").addEventListener("drop", e => {
+    const col = e.target.closest?.(".tg-col");
+    if (!col) return;
+    e.preventDefault();
+    const t = tasks.find(x => x.id === e.dataTransfer.getData("text/plain"));
+    const time = hhmm(dropMinutes(col, e));
+    $("tgrid").querySelector(".drop-ghost")?.remove();
+    document.body.classList.remove("dragging-task");
+    dragGrabMin = 0;
+    if (!t) return;
+    const date = col.dataset.date;
+    store.patch(t.id, t.repeat === "once" ? { time, date, ...(date !== t.date ? { lastDone: null, doing: null } : {}) } : { time });
+  });
+
+  // Tray: tasks without a time, waiting to be placed (calendar view, wide screens).
+  function renderTray(today) {
+    const open = tasks.filter(t => !t.time && !isDone(t, today) && !(t.repeat === "once" && t.lastDone)).sort(byTime);
+    $("trayList").replaceChildren(...open.map(t => {
+      const li = el("li", "tray-item");
+      li.draggable = true;
+      li.append(el("span", "tray-grip", "⋮⋮"));
+      const text = el("span", "tray-text", t.title);
+      const sub = t.repeat !== "once" ? repeatText(t) : t.date && t.date !== today ? repeatText(t) : "";
+      if (sub) text.append(el("small", "", sub));
+      li.append(text);
+      li.onclick = () => openEdit(t);
+      li.addEventListener("dragstart", e => { dragGrabMin = 0; startTaskDrag(e, t.id, li); });
+      li.addEventListener("dragend", () => endTaskDrag(li));
+      return li;
+    }));
+    $("trayEmpty").hidden = open.length > 0;
+  }
+  const tray = $("tray");
+  tray.addEventListener("dragover", e => { if (document.body.classList.contains("dragging-task")) { e.preventDefault(); tray.classList.add("over"); } });
+  tray.addEventListener("dragleave", e => { if (!tray.contains(e.relatedTarget)) tray.classList.remove("over"); });
+  tray.addEventListener("drop", e => {
+    e.preventDefault(); tray.classList.remove("over"); document.body.classList.remove("dragging-task");
+    const t = tasks.find(x => x.id === e.dataTransfer.getData("text/plain"));
+    if (t && t.time) store.patch(t.id, { time: null });
+  });
 
   let calConfirm = false;
   function openCal() {
@@ -953,7 +1038,8 @@
   setInterval(() => {
     if (!session) return;
     const m = hm(new Date());
-    if (m !== lastMinute) { lastMinute = m; render(); }
+    // Re-rendering mid-drag would pull the dragged card out from under the pointer.
+    if (m !== lastMinute && !document.body.classList.contains("dragging-task")) { lastMinute = m; render(); }
     if (++ticks % 2 === 0 && !document.hidden && !editing) store.pull();
     loadCal();
     checkReminders();
