@@ -63,12 +63,21 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 6v4.2l2.6 1.6"/></svg>
           <input id="addTime" type="time" aria-label="Reminder time">
         </label>
-        <button type="button" id="addRepeat" class="pill toggle" aria-pressed="false">
+        <label class="pill select-pill">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 9a6 6 0 0 1 10.5-3.9M16 11a6 6 0 0 1-10.5 3.9"/><path d="M14.8 2.6v2.8H12M5.2 17.4v-2.8H8"/></svg>
-          Daily
-        </button>
+          <select id="addRepeat" aria-label="Repeat">
+            <option value="once">Once</option>
+            <option value="daily">Every day</option>
+            <option value="weekdays">Weekdays</option>
+            <option value="days">Choose days</option>
+          </select>
+        </label>
+        <label class="pill date-pill" id="addDateWrap">
+          <input id="addDate" type="date" aria-label="Date">
+        </label>
         <button type="submit" class="btn-primary add-btn">Add</button>
       </div>
+      <div class="days add-days" id="addDays" hidden></div>
     </form>
 
     <section class="classes" id="classes" aria-labelledby="classesTitle">
@@ -278,6 +287,13 @@
     <button type="button" id="tSnooze">10 min</button>
     <button type="button" id="tClose" aria-label="Dismiss">✕</button>
   </div>
+</div>
+
+<div class="drop-choice" id="dropChoice" role="dialog" aria-labelledby="dcTitle" hidden>
+  <p class="dc-title" id="dcTitle"></p>
+  <button type="button" id="dcOnce"></button>
+  <button type="button" id="dcAll"></button>
+  <button type="button" class="dc-cancel" id="dcCancel">Cancel</button>
 </div>
 
 <div class="snack" id="snack" role="status" hidden>

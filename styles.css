@@ -418,3 +418,20 @@ h1 { margin: 2px 0 0; font-size: 32px; font-weight: 800; letter-spacing: -.025em
 body.dragging-task .ev { pointer-events: none; }
 body.dragging-task .ev.dragging { pointer-events: auto; }
 .drop-ghost { position: absolute; left: 2px; right: 2px; height: calc(.5 * var(--hh)); border-radius: 8px; border: 2px dashed var(--doing); background: color-mix(in srgb, var(--doing) 14%, transparent); color: var(--doing); font-size: 12px; font-weight: 800; padding: 2px 7px; pointer-events: none; z-index: 3; }
+
+/* composer: repeat menu, date and chosen days */
+.composer-row { flex-wrap: wrap; }
+.select-pill select, .date-pill input { border: 0; background: none; outline: none; color: var(--fg); font-size: 14px; font-weight: 600; padding: 0; min-width: 0; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.date-pill input { width: 128px; }
+.date-pill input::-webkit-calendar-picker-indicator { opacity: .5; cursor: pointer; }
+.add-days { margin-top: 8px; }
+.add-days button { height: 34px; }
+
+/* choice after dropping a repeating task on the calendar */
+.drop-choice { position: fixed; z-index: 30; width: min(300px, calc(100vw - 16px)); background: var(--card); border-radius: 14px; padding: 10px; display: grid; gap: 4px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .25), 0 0 0 1px var(--line); }
+.dc-title { margin: 2px 6px 6px; font-size: 13px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drop-choice button { text-align: left; padding: 10px; border-radius: 10px; font-weight: 600; font-size: 14px; }
+.drop-choice button:hover, .drop-choice button:focus-visible { background: var(--field); }
+#dcOnce { color: var(--accent); }
+.drop-choice .dc-cancel { color: var(--muted); font-weight: 500; }

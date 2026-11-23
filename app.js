@@ -134,6 +134,7 @@
     await joinFromLink();
     await store.pull();
     setView(view);
+    resetAdd();
     loadCal(true);
     syncPush().catch(() => {}).finally(paintNotify);
     setTimeout(checkReminders, 500);
@@ -286,19 +287,41 @@
   showTab(COLS.includes(ls.get("dl.tab", "todo")) ? ls.get("dl.tab", "todo") : "todo");
 
   // ---------- quick add ----------
-  $("addRepeat").onclick = e => { const b = e.currentTarget; b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); };
+  // A new task happens once (today, or a picked date) unless you choose a repeat; it resets after each add.
+  let pickedDays = [];
+  function paintAddDays() {
+    $("addDays").replaceChildren(...[1, 2, 3, 4, 5, 6, 0].map(d => {
+      const b = el("button", "", DAYS[d].slice(0, 2));
+      b.type = "button"; b.setAttribute("aria-label", DAYS[d]); b.setAttribute("aria-pressed", pickedDays.includes(d));
+      b.onclick = () => { pickedDays = pickedDays.includes(d) ? pickedDays.filter(x => x !== d) : pickedDays.concat(d); paintAddDays(); };
+      return b;
+    }));
+  }
+  function syncAddRepeat() {
+    const r = $("addRepeat").value;
+    $("addDateWrap").hidden = r !== "once";
+    $("addDays").hidden = r !== "days";
+    if (r === "days" && !pickedDays.length) pickedDays = [new Date().getDay()];
+    paintAddDays();
+  }
+  function resetAdd() {
+    $("addTitle").value = ""; $("addNote").value = ""; $("addTime").value = "";
+    $("addRepeat").value = "once"; $("addDate").value = ymd(new Date()); pickedDays = [];
+    syncAddRepeat(); growNote();
+  }
+  $("addRepeat").onchange = syncAddRepeat;
   $("addForm").addEventListener("submit", e => {
     e.preventDefault();
     const title = $("addTitle").value.trim();
     if (!title) { $("addTitle").focus(); return; }
-    const daily = $("addRepeat").getAttribute("aria-pressed") === "true";
+    const repeat = $("addRepeat").value;
     store.put(newId(), {
       title, note: $("addNote").value.trim(), time: $("addTime").value || null,
-      repeat: daily ? "daily" : "once", days: [], date: daily ? null : ymd(new Date()),
+      repeat, days: repeat === "days" ? pickedDays.slice().sort() : [],
+      date: repeat === "once" ? ($("addDate").value || ymd(new Date())) : null,
       lastDone: null, doing: null, createdAt: Date.now(), by: board === "me" ? null : session.username
     });
-    $("addTitle").value = ""; $("addNote").value = ""; $("addTime").value = "";
-    growNote();
+    resetAdd();
     $("addTitle").focus();
   });
   // Enter in the topic jumps to the description; the description grows as you type.
@@ -647,8 +670,30 @@
     dragGrabMin = 0;
     if (!t) return;
     const date = col.dataset.date;
-    store.patch(t.id, t.repeat === "once" ? { time, date, ...(date !== t.date ? { lastDone: null, doing: null } : {}) } : { time });
+    if (t.repeat === "once") store.patch(t.id, { time, date, ...(date !== t.date ? { lastDone: null, doing: null } : {}) });
+    else askRepeatDrop(t, date, time, e.clientX, e.clientY);
   });
+
+  // A repeating task dropped on a day: only that day (it becomes a one-time task), or every repeat.
+  function askRepeatDrop(t, date, time, x, y) {
+    const [yy, mm, dd] = date.split("-").map(Number);
+    const day = new Date(yy, mm - 1, dd).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    const box = $("dropChoice");
+    $("dcTitle").textContent = t.title;
+    $("dcOnce").textContent = `Only on ${day} at ${time}`;
+    $("dcAll").textContent = `${repeatText(t)} at ${time}`;
+    $("dcOnce").onclick = () => { closeDropChoice(); store.patch(t.id, { repeat: "once", date, days: [], time, lastDone: null, doing: null }); };
+    $("dcAll").onclick = () => { closeDropChoice(); store.patch(t.id, { time }); };
+    box.hidden = false;
+    const w = box.offsetWidth, h = box.offsetHeight;
+    box.style.left = Math.max(8, Math.min(x - w / 2, innerWidth - w - 8)) + "px";
+    box.style.top = Math.max(8, Math.min(y + 12, innerHeight - h - 8)) + "px";
+    $("dcOnce").focus();
+  }
+  const closeDropChoice = () => { $("dropChoice").hidden = true; };
+  $("dcCancel").onclick = closeDropChoice;
+  document.addEventListener("pointerdown", e => { if (!$("dropChoice").hidden && !$("dropChoice").contains(e.target)) closeDropChoice(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeDropChoice(); });
 
   // Tray: tasks without a time, waiting to be placed (calendar view, wide screens).
   function renderTray(today) {
