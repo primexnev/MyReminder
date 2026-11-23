@@ -287,6 +287,36 @@
   showTab(COLS.includes(ls.get("dl.tab", "todo")) ? ls.get("dl.tab", "todo") : "todo");
 
   // ---------- quick add ----------
+  // Time fields: phones keep the native wheel; on a computer it's a plain text box that understands
+  // "14:30", "1430", "9", "9.15", "9pm" (the native desktop field rejected half-typed times as "Invalid value").
+  const typedTime = !matchMedia("(pointer: coarse)").matches;
+  function parseTime(raw) {
+    const s = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2})(?:[:.h]?(\d{2}))?(am|pm|a|p)?$/);
+    if (!m) return false;
+    let h = +m[1]; const min = m[2] ? +m[2] : 0, ap = m[3] && m[3][0];
+    if (ap) { if (h < 1 || h > 12) return false; h = h % 12 + (ap === "p" ? 12 : 0); }
+    if (h > 23 || min > 59) return false;
+    return String(h).padStart(2, "0") + ":" + String(min).padStart(2, "0");
+  }
+  function timeField(id) {
+    const i = $(id);
+    if (typedTime) {
+      i.type = "text"; i.inputMode = "numeric"; i.placeholder = "--:--"; i.maxLength = 8; i.autocomplete = "off";
+      i.addEventListener("input", () => i.setCustomValidity(""));
+      i.addEventListener("blur", () => { const t = parseTime(i.value); if (t) i.value = t; });
+    }
+    return i;
+  }
+  // Returns "HH:MM", null for empty, or false (and flags the field) when it can't be read.
+  function readTime(id) {
+    const i = $(id), t = typedTime ? parseTime(i.value) : (i.value || null);
+    if (t === false) { i.setCustomValidity("Use a time like 14:30"); i.reportValidity(); i.focus(); }
+    return t;
+  }
+  timeField("addTime"); timeField("eTime");
+
   // A new task happens once (today, or a picked date) unless you choose a repeat; it resets after each add.
   let pickedDays = [];
   function paintAddDays() {
@@ -314,9 +344,11 @@
     e.preventDefault();
     const title = $("addTitle").value.trim();
     if (!title) { $("addTitle").focus(); return; }
+    const time = readTime("addTime");
+    if (time === false) return;
     const repeat = $("addRepeat").value;
     store.put(newId(), {
-      title, note: $("addNote").value.trim(), time: $("addTime").value || null,
+      title, note: $("addNote").value.trim(), time,
       repeat, days: repeat === "days" ? pickedDays.slice().sort() : [],
       date: repeat === "once" ? ($("addDate").value || ymd(new Date())) : null,
       lastDone: null, doing: null, createdAt: Date.now(), by: board === "me" ? null : session.username
@@ -371,10 +403,12 @@
     e.preventDefault();
     const title = $("eTitle").value.trim();
     if (!title) return;
+    const time = readTime("eTime");
+    if (time === false) return;
     const repeat = $("eRepeat").value;
     const { id, ...prev } = editing;
     store.put(id, {
-      ...prev, title, note: $("eNote").value.trim(), repeat, time: $("eTime").value || null,
+      ...prev, title, note: $("eNote").value.trim(), repeat, time,
       days: repeat === "days" ? eDays.slice().sort() : [],
       date: repeat === "once" ? ($("eDate").value || ymd(new Date())) : null,
       lastDone: repeat === prev.repeat ? prev.lastDone : null,
